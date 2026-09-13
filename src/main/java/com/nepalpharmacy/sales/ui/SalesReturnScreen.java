@@ -60,6 +60,12 @@ public final class SalesReturnScreen {
         configureView();
     }
 
+    public SalesReturnScreen(SalesReturnService returns, long invoiceNumber) {
+        this(returns);
+        this.invoiceNumber.setText(Long.toString(invoiceNumber));
+        loadSale();
+    }
+
     public Parent view() {
         return root;
     }

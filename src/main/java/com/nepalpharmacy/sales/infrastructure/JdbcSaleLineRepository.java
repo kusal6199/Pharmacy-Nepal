@@ -46,12 +46,25 @@ public final class JdbcSaleLineRepository implements SaleLineRepository {
 
     @Override
     public Optional<SaleLine> findById(TransactionContext transaction, UUID id) {
+        return findById(JdbcTransactionContext.connection(transaction), id);
+    }
+
+    @Override
+    public Optional<SaleLine> findById(UUID id) {
+        try (Connection connection = connections.open()) {
+            return findById(connection, id);
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find sale line.", exception);
+        }
+    }
+
+    private Optional<SaleLine> findById(Connection connection, UUID id) {
         String sql = """
                 SELECT id, sale_id, batch_id, quantity_sold_base_units,
                        unit_sale_price_paisa, line_total_paisa
                 FROM sale_line WHERE id = ?
                 """;
-        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setString(1, id.toString());
             try (var results = statement.executeQuery()) {
                 return results.next() ? Optional.of(map(results)) : Optional.empty();
@@ -63,13 +76,26 @@ public final class JdbcSaleLineRepository implements SaleLineRepository {
 
     @Override
     public List<SaleLine> findBySaleId(TransactionContext transaction, UUID saleId) {
+        return findBySaleId(JdbcTransactionContext.connection(transaction), saleId);
+    }
+
+    @Override
+    public List<SaleLine> findBySaleId(UUID saleId) {
+        try (Connection connection = connections.open()) {
+            return findBySaleId(connection, saleId);
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not list sale lines.", exception);
+        }
+    }
+
+    private List<SaleLine> findBySaleId(Connection connection, UUID saleId) {
         String sql = """
                 SELECT id, sale_id, batch_id, quantity_sold_base_units,
                        unit_sale_price_paisa, line_total_paisa
                 FROM sale_line WHERE sale_id = ? ORDER BY rowid
                 """;
         List<SaleLine> lines = new ArrayList<>();
-        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setString(1, saleId.toString());
             try (var results = statement.executeQuery()) {
                 while (results.next()) {

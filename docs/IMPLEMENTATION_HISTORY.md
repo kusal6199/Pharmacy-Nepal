@@ -1917,3 +1917,94 @@ Purpose: record auditable partial or full returns against exact original transac
 - Purchase lookup uses recent purchases rather than supplier-invoice search because supplier invoice values are nullable and not unique; sales lookup uses its unique generated invoice number.
 - Excluded Udharo ledger/accounting postings, discounts, split payments, cancellation/voiding, reports, expiry/low-stock dashboards, barcode scanning, physical printing, authentication/RBAC, legal invoice formatting, CBMS, cloud sync, and multi-branch behavior.
 - `CREDIT` refunds are recorded as return metadata only; a future credit-ledger slice must interpret their financial effect.
+
+---
+
+## V6 — Sales and purchase history, document reopen, and direct return navigation
+
+Date: 2026-09-13
+Migration: none
+Purpose: make completed transactions discoverable after navigation or application restart, expose their immutable saved values and return availability, and reuse the existing V5 return workflows without changing inventory accounting.
+
+### V6-001 — Files changed
+
+- Added sales history read models and validation files: `SaleSummary.java`, `SaleDetail.java`, `SaleDetailLine.java`, `SaleSearchCriteria.java`, `SaleHistoryResult.java`, `SaleReturnStatus.java`, and `SaleHistoryValidationException.java`.
+- Added `SaleHistoryRepository.java`, `SaleHistoryService.java`, `sales/infrastructure/JdbcSaleHistoryRepository.java`, and `sales/ui/SaleHistoryScreen.java`.
+- Added purchase history read models and validation files: `PurchaseSummary.java`, `PurchaseDetail.java`, `PurchaseDetailLine.java`, `PurchaseSearchCriteria.java`, `PurchaseHistoryResult.java`, and `PurchaseHistoryValidationException.java`.
+- Added `PurchaseHistoryRepository.java`, `PurchaseHistoryService.java`, `purchasing/infrastructure/JdbcPurchaseHistoryRepository.java`, and `purchasing/ui/PurchaseHistoryScreen.java`.
+- Modified `SaleRepository.java`, `SaleLineRepository.java`, `PurchaseRepository.java`, and `PurchaseLineRepository.java` to add ordinary non-transactional original-document read variants alongside the V5 transaction-scoped variants.
+- Modified `JdbcSaleRepository.java`, `JdbcSaleLineRepository.java`, `JdbcPurchaseRepository.java`, and `JdbcPurchaseLineRepository.java` so both read variants share their existing private SQL and row-mapping paths while ordinary reads own and close their connection.
+- Modified `SalesReturnScreen.java` with an invoice-preload constructor that fills the existing invoice field and invokes the existing load workflow.
+- Modified `PurchaseReturnScreen.java` with a purchase-ID preload constructor and a shared ID-based load method, allowing history to open a purchase older than the return screen's latest-25 chooser without changing return logic.
+- Modified `bootstrap/ApplicationContext.java` to construct the two new JDBC history repositories and history services at the sole production composition point and expose only the services to the application shell.
+- Modified `PharmacyApplication.java` to retrieve both services, add shell and dashboard history navigation, pass minimal return callbacks, and route preloaded return screens.
+- Modified `JdbcSaleEntryRepositoryTest.java` only to add empty non-transactional methods to its deliberately failing anonymous `SaleLineRepository`; its rollback assertion and injected failure behavior are unchanged.
+- Added `SaleHistoryServiceTest.java`, `JdbcSaleHistoryRepositoryTest.java`, `PurchaseHistoryServiceTest.java`, and `JdbcPurchaseHistoryRepositoryTest.java`.
+- Modified `README.md`, `docs/ARCHITECTURE.md`, and this append-only `docs/IMPLEMENTATION_HISTORY.md` entry.
+- Did not modify `DatabaseBootstrap.java`, any V1-V5 migration, POS behavior, return coordinators, CSS, Maven dependencies, or the inventory movement model/check.
+
+### V6-002 — Database effect
+
+- Migration: none. No table, column, constraint, index, view, counter, or persisted data changed.
+- Existing V4 sales indexes already cover unique invoice lookup, sale date, and customer foreign-key access. Existing V3 purchasing indexing covers supplier/date access.
+- Case-insensitive customer, supplier, and supplier-invoice searches intentionally use `%substring%`; adding a normal B-tree index would not accelerate leading-wildcard matching, so no speculative V6 index was added.
+- All history SQL is parameterized and read-only. Default and search limits are applied in SQLite rather than after an unbounded table load.
+- V1 through V5 remain byte-for-byte unchanged. Fresh or existing databases remain at schema version 5, so compatibility and rollback behavior are unchanged.
+- `DatabaseBootstrap.verifyInventoryMovementReferences()` is unchanged because V6 creates no transaction or movement type. Its existing four owner mappings continue to run at startup.
+
+### V6-003 — Domain and validation effect
+
+- Added dedicated immutable history summary/detail/line records rather than reusing the POS-specific `SaleReceipt` and `SaleReceiptLine` confirmation DTOs.
+- Sales summaries carry UUID internally, numeric invoice, date, customer display name, payment method, exact integer-paisa total, and derived `NONE`, `PARTIAL`, or `FULL` return status.
+- Sales detail lines carry the original sale-line ID, product/batch/expiry, integer base-unit quantity, immutable original unit-price and line-total snapshots, previously returned quantity, and remaining returnable quantity.
+- Purchase summaries carry UUID internally, date, supplier name, nullable and non-unique supplier invoice, and exact integer-paisa total. UUIDs are not exposed in the UI.
+- Purchase detail lines carry the original purchase-line ID, product/batch/expiry, received quantity, immutable original unit-cost and line-total snapshots, prior/remaining return quantities, current movement-derived batch stock, and a derived physically returnable quantity capped by both remaining original quantity and current stock.
+- Sales invoice input is optional for broad search, trims whitespace, parses both `2` and `000002` as numeric invoice 2, and rejects non-numeric, zero, or negative values before repository execution.
+- Both history services reject an inclusive date range whose From date is after To date before repository execution and normalize blank optional text filters to null.
+- Money remains integer paisa and quantities remain integer base units in domain/repository code. NPR decimal formatting remains confined to the two JavaFX screens.
+- Historical documents are read-only. No edit, delete, repricing, party reassignment, or quantity mutation exists; returns remain the only correction mechanism.
+
+### V6-004 — Repository and transaction effect
+
+- `JdbcSaleHistoryRepository` runs one bounded joined/grouped summary query. A return-line CTE aggregates quantity by original sale line before the sale grouping, preventing multiplication and avoiding N+1 status queries.
+- Sales ordering is `sale_date DESC`, `created_at DESC`, then `invoice_number DESC`. Filters cover numeric invoice, inclusive dates, case-insensitive customer substring including the `Walk-in` fallback, and optional payment method. No current active-state filter is applied.
+- Sales status is derived strictly from total sold versus total returned quantities: zero returned is `NONE`, returned quantity at least total sold is `FULL`, and the remaining case is `PARTIAL`. No monetary total or writable status column is used.
+- Sale detail uses one owned connection and two focused queries: one header/status query and one all-lines query. Lines join product and batch for display but read price and total only from immutable `sale_line` columns and aggregate earlier returns in one query.
+- `JdbcPurchaseHistoryRepository` runs one bounded joined summary query with inclusive date, case-insensitive supplier substring, and case-insensitive supplier-invoice substring filters. Nullable and duplicate supplier invoices are preserved, and no current supplier active-state filter is applied.
+- Purchase ordering is `purchase_date DESC`, `created_at DESC`, then UUID ID as a deterministic final tiebreaker. Purchase detail uses one owned connection and focused header/line queries, reads original `purchase_line` cost/total, aggregates earlier return quantities, and left-joins `batch_stock` once for current stock.
+- Services request 51 rows for the latest-50 view and 101 rows for the search hard limit, return only 50 or 100 respectively, and carry a truncation flag for clear UI feedback.
+- Existing return coordinators and their transaction boundaries are reused unchanged. The direct-history action only supplies an invoice number or purchase UUID to the existing screen/service path.
+- Screens depend only on history/return services and navigation callbacks. Services depend only on repository interfaces. All JDBC and service construction remains in `ApplicationContext`; no DI framework or circular package dependency was introduced.
+
+### V6-005 — UI and navigation effect
+
+- Added `Sales history` and `Purchase history` buttons to the shell and matching dashboard actions. The established 175-pixel navigation width remains sufficient for all labels; no CSS or shell-size change was required.
+- Sales History uses the existing card/table/form/button/feedback/scroll styles and provides invoice, From/To date, customer, and All/Cash/QR/Credit filters.
+- Its result table shows zero-padded invoice, date, customer or `Walk-in`, payment, total NPR, and return status. Selecting a row loads its read-only document detail and original line snapshots.
+- `Create return` is enabled only when a selected sale has remaining quantity. It opens the existing Sales Return screen with the invoice already loaded; a fully returned sale disables the action and labels it `Fully returned`.
+- Purchase History provides From/To date, supplier, and supplier-invoice text filters. Its result table shows date, supplier, supplier invoice or an em dash when absent, and total NPR.
+- Selecting a purchase shows original quantities/costs/totals, prior/remaining returns, and current batch stock. `Return to supplier` opens the existing Purchase Return screen preloaded by UUID, including purchases outside its latest-25 chooser. When no unit is physically returnable, the disabled action reads `Nothing currently returnable`.
+- Both screens initially load at most the latest 50, automatically open the first result's detail, treat zero matches as a normal empty state, and show the actual 50- or 100-row limit when results are truncated.
+- Repository failures are translated to `DataAccessException` messages and UI validation failures are shown through existing feedback-label conventions; raw SQL exceptions are never displayed.
+- POS's temporary `Last completed invoice` behavior is unchanged.
+
+### V6-006 — Tests and verification
+
+- `SaleHistoryServiceTest` proves plain and zero-padded invoice equivalence, rejects invalid invoice/date input before any repository call, verifies filter normalization, and verifies both 50/100 result caps and truncation behavior.
+- `JdbcSaleHistoryRepositoryTest` uses a fresh migrated temp SQLite database per test and covers newest-first date/creation ordering, inclusive dates, numeric invoice/payment filters, case-insensitive customer substring, inactive customers, searchable/displayed walk-in sales, bounded SQL results, normal empty results, missing detail, ordinary non-transactional repository reads, immutable saved price/total after current product repricing/deactivation, and real `NONE`/`PARTIAL`/`FULL` return aggregation.
+- `PurchaseHistoryServiceTest` proves reversed-date rejection before repository access, optional-filter trimming, normal empty results, and the 50/100 result caps with truncation.
+- `JdbcPurchaseHistoryRepositoryTest` uses the same temp-SQLite pattern and covers newest-first date/creation ordering, inclusive dates, case-insensitive supplier/invoice filtering, inactive suppliers, duplicate and nullable supplier invoices, bounded SQL results, empty/missing results, ordinary non-transactional reads, immutable saved cost/total after product repricing/deactivation, prior/remaining returns, live batch stock, physically unavailable supplier returns, and discovery of a purchase older than the former latest-25 boundary.
+- Existing V1-V5 tests remain enabled; no assertion was weakened or disabled.
+- `./mvnw test`: 79 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- `./mvnw verify`: 79 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+- The isolated GUI acceptance launch was attempted with `PHARMACY_DATA_DIR=/tmp/pharmacy-v6-manual-20260913`; JavaFX initialized its native cache but the execution sandbox exposed no graphical screen, causing `Screen.getMainScreen()` to fail before the window opened. No click-through flow is claimed. Persistence, reopen projections, partial/full return refresh, old-purchase discovery, and stock-aware availability were instead exercised against real migrated temporary SQLite databases by the JDBC integration tests.
+- `git diff --check`: 0 errors after removing two trailing Markdown hard-break spaces detected by the first check.
+
+### V6-007 — Decisions, limitations, and excluded scope
+
+- Chose separate purpose-built history repositories because list/status/detail queries span document, party, line, return, product, batch, and stock read projections that do not belong in the narrow write repositories. The four pre-existing repositories still gained the explicitly requested ordinary variants and share their V5 SQL internally.
+- Chose one bounded list query plus on-demand detail queries over an unreadable all-documents mega-query. This avoids N+1 behavior while keeping selection-time detail SQL auditable.
+- Customer and supplier names are resolved from current master records because existing sale/purchase schemas snapshot IDs and financial line values, not party names. Deactivation does not hide history. Original financial values remain exact because line price/cost and totals were already snapshotted.
+- No document edit, invoice reprint, PDF, thermal/A4 print, CSV/Excel export, reports dashboard, analytics, stock valuation, or new accounting behavior was added.
+- Expiry/low-stock alerts, Udharo ledger/accounting, reports, RBAC/audit, Nepal invoice/PAN/VAT legal formatting, printing, barcode workflows, cloud sync, multi-branch behavior, and CBMS all remain out of scope.
+- Recommended next phase: an operational inventory/expiry and low-stock dashboard, while retaining movement-derived stock and the same bounded read-model architecture. V7 work was not started here.

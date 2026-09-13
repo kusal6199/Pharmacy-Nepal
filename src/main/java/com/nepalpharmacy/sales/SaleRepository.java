@@ -15,5 +15,9 @@ public interface SaleRepository {
 
     Optional<Sale> findByInvoiceNumber(TransactionContext transaction, long invoiceNumber);
 
+    Optional<Sale> findById(UUID id);
+
+    Optional<Sale> findByInvoiceNumber(long invoiceNumber);
+
     long count();
 }

@@ -60,6 +60,15 @@ public final class PurchaseReturnScreen {
         refreshPurchases();
     }
 
+    public PurchaseReturnScreen(PurchaseReturnService returns, java.util.UUID purchaseId) {
+        this(returns);
+        recentPurchase.getItems().stream()
+                .filter(item -> item.id().equals(purchaseId))
+                .findFirst()
+                .ifPresent(recentPurchase::setValue);
+        loadPurchase(purchaseId);
+    }
+
     public Parent view() {
         return root;
     }
@@ -218,8 +227,12 @@ public final class PurchaseReturnScreen {
             feedback.setText("Select an original purchase.");
             return;
         }
+        loadPurchase(selected.id());
+    }
+
+    private void loadPurchase(java.util.UUID purchaseId) {
         try {
-            source = returns.findSource(selected.id()).orElse(null);
+            source = returns.findSource(purchaseId).orElse(null);
             draftLines.clear();
             updateTotal();
             if (source == null) {

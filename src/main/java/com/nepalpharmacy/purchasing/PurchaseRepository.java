@@ -12,6 +12,8 @@ public interface PurchaseRepository {
 
     Optional<Purchase> findById(TransactionContext transaction, UUID id);
 
+    Optional<Purchase> findById(UUID id);
+
     List<RecentPurchase> findRecent(int limit);
 
     long count();

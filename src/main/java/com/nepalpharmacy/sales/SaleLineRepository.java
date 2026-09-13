@@ -14,5 +14,9 @@ public interface SaleLineRepository {
 
     List<SaleLine> findBySaleId(TransactionContext transaction, UUID saleId);
 
+    Optional<SaleLine> findById(UUID id);
+
+    List<SaleLine> findBySaleId(UUID saleId);
+
     long count();
 }

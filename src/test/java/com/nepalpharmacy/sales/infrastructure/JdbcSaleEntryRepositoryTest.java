@@ -198,6 +198,16 @@ class JdbcSaleEntryRepositoryTest {
         BatchStock stock = receive("ROLLBACK", SALE_DATE.plusYears(1), 5);
         SaleLineRepository failingLines = new SaleLineRepository() {
             @Override
+            public java.util.Optional<SaleLine> findById(UUID id) {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public List<SaleLine> findBySaleId(UUID saleId) {
+                return List.of();
+            }
+
+            @Override
             public void insert(TransactionContext transaction, SaleLine line) {
                 throw new DataAccessException("Forced line failure.");
             }

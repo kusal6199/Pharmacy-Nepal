@@ -14,5 +14,9 @@ public interface PurchaseLineRepository {
 
     List<PurchaseLine> findByPurchaseId(TransactionContext transaction, UUID purchaseId);
 
+    Optional<PurchaseLine> findById(UUID id);
+
+    List<PurchaseLine> findByPurchaseId(UUID purchaseId);
+
     long count();
 }

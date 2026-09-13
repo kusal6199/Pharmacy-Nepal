@@ -11,7 +11,7 @@ Local-first pharmacy management application scaffolded for supervised, increment
 - Flyway schema migrations
 - JUnit 5 tests
 
-The executable opens a dashboard, product master, purchase-entry screen, point of sale, sales-return screen, and purchase-return screen. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided cash, QR, or customer-linked credit sales, and record batch-aware returns against original transaction lines.
+The executable opens a dashboard, product master, purchase-entry screen, point of sale, sales and purchase history screens, and both return screens. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided cash, QR, or customer-linked credit sales, find persisted historical documents after navigating away or restarting, and record batch-aware returns against original transaction lines.
 
 ## Prerequisites
 
@@ -129,10 +129,25 @@ The V5 returns slice adds:
 8. Separate sequential return-number counters allocated inside each atomic return transaction
 9. Startup integrity validation for all four movement reference-owner types
 
-Discounts, split payments, cancellation/voiding, credit-ledger reporting, barcode scanning, physical printing, authentication, and CBMS integration remain outside V5.
+### Sales and purchase history
+
+The V6 history slice adds:
+
+1. A latest-50 Sales History list with invoice, inclusive date, customer, and payment filters
+2. Derived `NONE`, `PARTIAL`, and `FULL` sales-return status from original and returned quantities
+3. Read-only sale detail with original saved prices, batch/expiry, and return availability
+4. A latest-50 Purchase History list with inclusive date, supplier, and non-unique supplier-invoice text filters
+5. Read-only purchase detail with original saved costs, return quantities, and current batch stock
+6. Direct navigation from either historical document to its existing return workflow
+7. Search result caps of 100 with clear truncation feedback
+8. Historical visibility for inactive parties/products and walk-in sales
+
+V6 is read-only and adds no migration. Completed sales and purchases remain immutable; returns remain the only correction mechanism.
+
+Expiry/low-stock alerts, Udharo ledger/accounting, reports and analytics, RBAC/audit, Nepal invoice/PAN/VAT formatting, printing, barcode workflows, cloud sync, multi-branch support, and CBMS integration remain outside V6.
 
 See `docs/MVP_SCOPE.md` for the scope boundary and `docs/ARCHITECTURE.md` for the initial design.
 
 ## Detailed implementation history
 
-See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V5, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.
+See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V6, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.

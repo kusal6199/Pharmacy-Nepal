@@ -7,12 +7,16 @@ import com.nepalpharmacy.party.SupplierService;
 import com.nepalpharmacy.product.ProductService;
 import com.nepalpharmacy.product.ui.ProductScreen;
 import com.nepalpharmacy.purchasing.PurchaseService;
+import com.nepalpharmacy.purchasing.PurchaseHistoryService;
 import com.nepalpharmacy.purchasing.PurchaseReturnService;
 import com.nepalpharmacy.purchasing.ui.PurchaseScreen;
+import com.nepalpharmacy.purchasing.ui.PurchaseHistoryScreen;
 import com.nepalpharmacy.purchasing.ui.PurchaseReturnScreen;
 import com.nepalpharmacy.sales.SaleService;
+import com.nepalpharmacy.sales.SaleHistoryService;
 import com.nepalpharmacy.sales.SalesReturnService;
 import com.nepalpharmacy.sales.ui.POSScreen;
+import com.nepalpharmacy.sales.ui.SaleHistoryScreen;
 import com.nepalpharmacy.sales.ui.SalesReturnScreen;
 import javafx.application.Application;
 import javafx.geometry.Insets;
@@ -21,6 +25,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -36,6 +41,8 @@ public final class PharmacyApplication extends Application {
     private SaleService saleService;
     private SalesReturnService salesReturnService;
     private PurchaseReturnService purchaseReturnService;
+    private SaleHistoryService saleHistoryService;
+    private PurchaseHistoryService purchaseHistoryService;
     private int migrationsExecuted;
 
     @Override
@@ -50,6 +57,8 @@ public final class PharmacyApplication extends Application {
         saleService = context.saleService();
         salesReturnService = context.salesReturnService();
         purchaseReturnService = context.purchaseReturnService();
+        saleHistoryService = context.saleHistoryService();
+        purchaseHistoryService = context.purchaseHistoryService();
 
         shell.setTop(createHeader());
         shell.setLeft(createNavigation());
@@ -93,9 +102,13 @@ public final class PharmacyApplication extends Application {
         salesReturns.setOnAction(event -> showSalesReturns());
         Button purchaseReturns = navigationButton("Purchase returns");
         purchaseReturns.setOnAction(event -> showPurchaseReturns());
+        Button salesHistory = navigationButton("Sales history");
+        salesHistory.setOnAction(event -> showSalesHistory());
+        Button purchaseHistory = navigationButton("Purchase history");
+        purchaseHistory.setOnAction(event -> showPurchaseHistory());
 
         VBox navigation = new VBox(8, dashboard, products, purchases, pos,
-                salesReturns, purchaseReturns);
+                salesHistory, purchaseHistory, salesReturns, purchaseReturns);
         navigation.getStyleClass().add("navigation");
         navigation.setPadding(new Insets(12));
         navigation.setPrefWidth(175);
@@ -140,9 +153,15 @@ public final class PharmacyApplication extends Application {
         Button openPurchaseReturns = new Button("Record purchase return");
         openPurchaseReturns.getStyleClass().add("secondary-button");
         openPurchaseReturns.setOnAction(event -> showPurchaseReturns());
+        Button openSalesHistory = new Button("View sales history");
+        openSalesHistory.getStyleClass().add("secondary-button");
+        openSalesHistory.setOnAction(event -> showSalesHistory());
+        Button openPurchaseHistory = new Button("View purchase history");
+        openPurchaseHistory.getStyleClass().add("secondary-button");
+        openPurchaseHistory.setOnAction(event -> showPurchaseHistory());
 
-        HBox actions = new HBox(10, openProducts, openPurchases, openPos,
-                openSalesReturns, openPurchaseReturns);
+        FlowPane actions = new FlowPane(10, 10, openProducts, openPurchases, openPos,
+                openSalesHistory, openPurchaseHistory, openSalesReturns, openPurchaseReturns);
         VBox content = new VBox(20, cards, guidance, actions);
         content.setPadding(new Insets(8, 28, 28, 28));
         shell.setCenter(content);
@@ -164,8 +183,25 @@ public final class PharmacyApplication extends Application {
         shell.setCenter(new SalesReturnScreen(salesReturnService).view());
     }
 
+    private void showSalesReturns(long invoiceNumber) {
+        shell.setCenter(new SalesReturnScreen(salesReturnService, invoiceNumber).view());
+    }
+
     private void showPurchaseReturns() {
         shell.setCenter(new PurchaseReturnScreen(purchaseReturnService).view());
+    }
+
+    private void showPurchaseReturns(java.util.UUID purchaseId) {
+        shell.setCenter(new PurchaseReturnScreen(purchaseReturnService, purchaseId).view());
+    }
+
+    private void showSalesHistory() {
+        shell.setCenter(new SaleHistoryScreen(saleHistoryService, this::showSalesReturns).view());
+    }
+
+    private void showPurchaseHistory() {
+        shell.setCenter(new PurchaseHistoryScreen(
+                purchaseHistoryService, this::showPurchaseReturns).view());
     }
 
     private VBox statusCard(String label, String value) {

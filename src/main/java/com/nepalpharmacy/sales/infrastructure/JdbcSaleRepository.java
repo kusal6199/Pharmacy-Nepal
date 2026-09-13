@@ -88,13 +88,24 @@ public final class JdbcSaleRepository implements SaleRepository {
 
     @Override
     public Optional<Sale> findById(TransactionContext transaction, UUID id) {
-        return find(transaction, "s.id = ?", id.toString());
+        return find(JdbcTransactionContext.connection(transaction), "s.id = ?", id.toString());
     }
 
     @Override
     public Optional<Sale> findByInvoiceNumber(
             TransactionContext transaction, long invoiceNumber) {
-        return find(transaction, "s.invoice_number = ?", invoiceNumber);
+        return find(JdbcTransactionContext.connection(transaction),
+                "s.invoice_number = ?", invoiceNumber);
+    }
+
+    @Override
+    public Optional<Sale> findById(UUID id) {
+        return findWithOwnedConnection("s.id = ?", id.toString());
+    }
+
+    @Override
+    public Optional<Sale> findByInvoiceNumber(long invoiceNumber) {
+        return findWithOwnedConnection("s.invoice_number = ?", invoiceNumber);
     }
 
     @Override
@@ -123,15 +134,22 @@ public final class JdbcSaleRepository implements SaleRepository {
         }
     }
 
-    private Optional<Sale> find(
-            TransactionContext transaction, String predicate, Object value) {
+    private Optional<Sale> findWithOwnedConnection(String predicate, Object value) {
+        try (Connection connection = connections.open()) {
+            return find(connection, predicate, value);
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find sale.", exception);
+        }
+    }
+
+    private Optional<Sale> find(Connection connection, String predicate, Object value) {
         String sql = """
                 SELECT s.id, s.customer_id, s.sale_date, s.invoice_number,
                        s.payment_method, s.total_amount_paisa, s.created_at, s.created_by
                 FROM sale s
                 WHERE %s
                 """.formatted(predicate);
-        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setObject(1, value);
             try (var results = statement.executeQuery()) {
                 return results.next() ? Optional.of(map(results)) : Optional.empty();

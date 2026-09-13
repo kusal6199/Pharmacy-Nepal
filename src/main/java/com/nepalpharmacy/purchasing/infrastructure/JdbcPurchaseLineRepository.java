@@ -46,12 +46,25 @@ public final class JdbcPurchaseLineRepository implements PurchaseLineRepository 
 
     @Override
     public Optional<PurchaseLine> findById(TransactionContext transaction, UUID id) {
+        return findById(JdbcTransactionContext.connection(transaction), id);
+    }
+
+    @Override
+    public Optional<PurchaseLine> findById(UUID id) {
+        try (Connection connection = connections.open()) {
+            return findById(connection, id);
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find purchase line.", exception);
+        }
+    }
+
+    private Optional<PurchaseLine> findById(Connection connection, UUID id) {
         String sql = """
                 SELECT id, purchase_id, batch_id, quantity_received_base_units,
                        unit_purchase_price_paisa, line_total_paisa
                 FROM purchase_line WHERE id = ?
                 """;
-        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setString(1, id.toString());
             try (var results = statement.executeQuery()) {
                 return results.next() ? Optional.of(map(results)) : Optional.empty();
@@ -64,13 +77,26 @@ public final class JdbcPurchaseLineRepository implements PurchaseLineRepository 
     @Override
     public List<PurchaseLine> findByPurchaseId(
             TransactionContext transaction, UUID purchaseId) {
+        return findByPurchaseId(JdbcTransactionContext.connection(transaction), purchaseId);
+    }
+
+    @Override
+    public List<PurchaseLine> findByPurchaseId(UUID purchaseId) {
+        try (Connection connection = connections.open()) {
+            return findByPurchaseId(connection, purchaseId);
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not list purchase lines.", exception);
+        }
+    }
+
+    private List<PurchaseLine> findByPurchaseId(Connection connection, UUID purchaseId) {
         String sql = """
                 SELECT id, purchase_id, batch_id, quantity_received_base_units,
                        unit_purchase_price_paisa, line_total_paisa
                 FROM purchase_line WHERE purchase_id = ? ORDER BY rowid
                 """;
         List<PurchaseLine> lines = new ArrayList<>();
-        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setString(1, purchaseId.toString());
             try (var results = statement.executeQuery()) {
                 while (results.next()) {

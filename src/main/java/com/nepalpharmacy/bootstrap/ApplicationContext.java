@@ -14,6 +14,8 @@ import com.nepalpharmacy.product.ProductRepository;
 import com.nepalpharmacy.product.ProductService;
 import com.nepalpharmacy.product.infrastructure.JdbcProductRepository;
 import com.nepalpharmacy.purchasing.PurchaseEntryRepository;
+import com.nepalpharmacy.purchasing.PurchaseHistoryRepository;
+import com.nepalpharmacy.purchasing.PurchaseHistoryService;
 import com.nepalpharmacy.purchasing.PurchaseLineRepository;
 import com.nepalpharmacy.purchasing.PurchaseRepository;
 import com.nepalpharmacy.purchasing.PurchaseReturnEntryRepository;
@@ -22,6 +24,7 @@ import com.nepalpharmacy.purchasing.PurchaseReturnRepository;
 import com.nepalpharmacy.purchasing.PurchaseReturnService;
 import com.nepalpharmacy.purchasing.PurchaseService;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseEntryRepository;
+import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseHistoryRepository;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseLineRepository;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseRepository;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseReturnEntryRepository;
@@ -31,6 +34,8 @@ import com.nepalpharmacy.shared.infrastructure.ConnectionProvider;
 import com.nepalpharmacy.shared.infrastructure.JdbcTransactionRunner;
 import com.nepalpharmacy.shared.persistence.TransactionRunner;
 import com.nepalpharmacy.sales.SaleEntryRepository;
+import com.nepalpharmacy.sales.SaleHistoryRepository;
+import com.nepalpharmacy.sales.SaleHistoryService;
 import com.nepalpharmacy.sales.SaleLineRepository;
 import com.nepalpharmacy.sales.SaleRepository;
 import com.nepalpharmacy.sales.SaleService;
@@ -39,6 +44,7 @@ import com.nepalpharmacy.sales.SalesReturnLineRepository;
 import com.nepalpharmacy.sales.SalesReturnRepository;
 import com.nepalpharmacy.sales.SalesReturnService;
 import com.nepalpharmacy.sales.infrastructure.JdbcSaleEntryRepository;
+import com.nepalpharmacy.sales.infrastructure.JdbcSaleHistoryRepository;
 import com.nepalpharmacy.sales.infrastructure.JdbcSaleLineRepository;
 import com.nepalpharmacy.sales.infrastructure.JdbcSaleRepository;
 import com.nepalpharmacy.sales.infrastructure.JdbcSalesReturnEntryRepository;
@@ -56,6 +62,8 @@ public final class ApplicationContext {
     private final SaleService saleService;
     private final SalesReturnService salesReturnService;
     private final PurchaseReturnService purchaseReturnService;
+    private final SaleHistoryService saleHistoryService;
+    private final PurchaseHistoryService purchaseHistoryService;
 
     public ApplicationContext(DatabaseBootstrap database) {
         Objects.requireNonNull(database, "database");
@@ -71,6 +79,8 @@ public final class ApplicationContext {
         PurchaseRepository purchaseRepository = new JdbcPurchaseRepository(connections);
         PurchaseLineRepository purchaseLineRepository =
                 new JdbcPurchaseLineRepository(connections);
+        PurchaseHistoryRepository purchaseHistoryRepository =
+                new JdbcPurchaseHistoryRepository(connections);
         PurchaseEntryRepository purchaseEntryRepository = new JdbcPurchaseEntryRepository(
                 transactions,
                 supplierRepository,
@@ -80,6 +90,8 @@ public final class ApplicationContext {
                 movementRepository);
         SaleRepository saleRepository = new JdbcSaleRepository(connections);
         SaleLineRepository saleLineRepository = new JdbcSaleLineRepository(connections);
+        SaleHistoryRepository saleHistoryRepository =
+                new JdbcSaleHistoryRepository(connections);
         SaleEntryRepository saleEntryRepository = new JdbcSaleEntryRepository(
                 transactions,
                 customerRepository,
@@ -125,6 +137,8 @@ public final class ApplicationContext {
         saleService = new SaleService(saleEntryRepository, batchRepository);
         salesReturnService = new SalesReturnService(salesReturnEntryRepository);
         purchaseReturnService = new PurchaseReturnService(purchaseReturnEntryRepository);
+        saleHistoryService = new SaleHistoryService(saleHistoryRepository);
+        purchaseHistoryService = new PurchaseHistoryService(purchaseHistoryRepository);
     }
 
     public ProductService productService() {
@@ -153,5 +167,13 @@ public final class ApplicationContext {
 
     public PurchaseReturnService purchaseReturnService() {
         return purchaseReturnService;
+    }
+
+    public SaleHistoryService saleHistoryService() {
+        return saleHistoryService;
+    }
+
+    public PurchaseHistoryService purchaseHistoryService() {
+        return purchaseHistoryService;
     }
 }

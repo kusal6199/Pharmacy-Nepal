@@ -51,12 +51,25 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
 
     @Override
     public Optional<Purchase> findById(TransactionContext transaction, UUID id) {
+        return findById(JdbcTransactionContext.connection(transaction), id);
+    }
+
+    @Override
+    public Optional<Purchase> findById(UUID id) {
+        try (Connection connection = connections.open()) {
+            return findById(connection, id);
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find purchase.", exception);
+        }
+    }
+
+    private Optional<Purchase> findById(Connection connection, UUID id) {
         String sql = """
                 SELECT id, supplier_id, purchase_date, invoice_number,
                        total_amount_paisa, created_at, created_by
                 FROM purchase WHERE id = ?
                 """;
-        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setString(1, id.toString());
             try (var results = statement.executeQuery()) {
                 return results.next() ? Optional.of(map(results)) : Optional.empty();
