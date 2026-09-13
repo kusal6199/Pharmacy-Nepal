@@ -36,7 +36,42 @@ public final class DatabaseBootstrap {
                 .locations("classpath:db/migration")
                 .load();
 
-        return flyway.migrate().migrationsExecuted;
+        int migrationsExecuted = flyway.migrate().migrationsExecuted;
+        verifyInventoryMovementReferences();
+        return migrationsExecuted;
+    }
+
+    public void verifyInventoryMovementReferences() {
+        String sql = """
+                SELECT movement.id, movement.movement_type, movement.reference_id
+                FROM inventory_movement movement
+                LEFT JOIN purchase purchase_header
+                    ON purchase_header.id = movement.reference_id
+                LEFT JOIN sale sale_header
+                    ON sale_header.id = movement.reference_id
+                WHERE (movement.movement_type = 'PURCHASE_RECEIPT'
+                       AND purchase_header.id IS NULL)
+                   OR (movement.movement_type = 'SALE'
+                       AND sale_header.id IS NULL)
+                   OR movement.movement_type NOT IN ('PURCHASE_RECEIPT', 'SALE')
+                LIMIT 1
+                """;
+
+        try (Connection connection = openConnection();
+             var statement = connection.prepareStatement(sql);
+             var results = statement.executeQuery()) {
+            if (results.next()) {
+                throw new IllegalStateException(
+                        "Inventory movement reference integrity check failed: movement "
+                                + results.getString("id") + " of type "
+                                + results.getString("movement_type") + " references "
+                                + results.getString("reference_id")
+                                + ", which is not a matching persisted transaction.");
+            }
+        } catch (SQLException exception) {
+            throw new IllegalStateException(
+                    "Could not verify inventory movement reference integrity.", exception);
+        }
     }
 
     public Path databasePath() {

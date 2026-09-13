@@ -1537,6 +1537,81 @@ V4 intentionally did not add:
 
 ---
 
+## V4 follow-up — Inventory movement reference integrity check
+
+Date: 2026-09-13
+Migration: none
+Purpose: replace the polymorphic database foreign key that SQLite cannot express with a repeatable application-startup integrity check.
+
+### V4-REF-001 — Files changed
+
+- Modified `src/main/java/com/nepalpharmacy/bootstrap/DatabaseBootstrap.java`.
+- Modified `src/test/java/com/nepalpharmacy/bootstrap/DatabaseBootstrapTest.java`.
+- Modified `docs/ARCHITECTURE.md`.
+- Modified `docs/IMPLEMENTATION_HISTORY.md`.
+- Added no migration, table, column, constraint, index, dependency, service, repository, or UI file.
+
+### V4-REF-002 — Startup diagnostic behavior
+
+Added public `DatabaseBootstrap.verifyInventoryMovementReferences()` and invoked it automatically after every successful `Flyway.migrate()` call, including startups where the schema is already current.
+
+The diagnostic performs left joins from `inventory_movement.reference_id` to both transaction-header tables and reports a violation when:
+
+- `PURCHASE_RECEIPT` does not resolve to a `purchase` row.
+- `SALE` does not resolve to a `sale` row.
+- A movement type has no reference-owner rule implemented by the current application.
+
+The query uses `LIMIT 1` without ordering, so it stops after locating one actionable violation instead of loading or sorting the complete movement history. Existing primary-key indexes on `purchase.id` and `sale.id` support the lookups. The existing `idx_inventory_movement_reference` remains available for other reference queries.
+
+On a violation, startup throws `IllegalStateException` before constructing the application services or showing JavaFX. The error includes the offending movement ID, movement type, and reference ID. A SQL/query failure produces a separate `Could not verify inventory movement reference integrity` error with its cause.
+
+The original migration count returned by `migrate()` is preserved after a successful check.
+
+### V4-REF-003 — Database and compatibility effect
+
+There is no schema migration because this is an application-level diagnostic over the existing V4 schema. No data is inserted, updated, deleted, or repaired by the check.
+
+`SALE_RETURN` remains reserved by the V4 database constraint and stock view, but no return transaction owner exists in the current slice. The check therefore treats it as unsupported instead of silently accepting an unverifiable reference. The future sales-return slice must introduce its transaction owner and extend this diagnostic in the same change before it begins writing return movements.
+
+This check detects existing corruption at startup; normal purchase and sale coordinators already create the transaction header and matching movement atomically, so a valid application transaction cannot leave an orphan through an ordinary partial failure.
+
+### V4-REF-004 — Tests
+
+Added four startup-integrity scenarios to `DatabaseBootstrapTest` using temporary schema-V4 SQLite databases:
+
+- `startupIntegrityCheckAcceptsMatchingPurchaseAndSaleReferences` inserts matching purchase and sale headers with one movement of each implemented type, then reruns startup migration/check and expects success.
+- `startupIntegrityCheckRejectsOrphanedPurchaseReceiptReference` inserts a receipt movement whose purchase does not exist and verifies that the diagnostic identifies its movement ID, type, and reference ID.
+- `startupIntegrityCheckRejectsSaleMovementPointingToAPurchase` inserts a real purchase but uses its ID as a `SALE` reference, proving that existence in the wrong transaction table is rejected.
+- `startupIntegrityCheckRejectsMovementTypesWithoutAnImplementedReferenceOwner` inserts the migration-reserved `SALE_RETURN` type and proves it cannot bypass reference checking before a return owner is implemented.
+
+The invalid rows are deliberately inserted through JDBC because V4 no longer has a single-table `reference_id` foreign key; this recreates the exact corruption the diagnostic is intended to detect.
+
+### V4-REF-005 — UI, architecture, and scope
+
+- Added no UI control or navigation item; the check runs automatically during the existing startup path.
+- Added an `Inventory movement reference integrity` section to `ARCHITECTURE.md` describing the polymorphic invariant, fail-fast behavior, and future-extension requirement.
+- Kept the check in bootstrap because it verifies database-wide structural integrity before dependency composition, rather than representing a sales or purchasing business operation.
+- Added no repair behavior. The diagnostic intentionally stops startup so corruption can be investigated rather than guessing which header an orphan should reference.
+
+### V4-REF-006 — Verification
+
+Commands:
+
+```text
+./mvnw test
+./mvnw verify
+```
+
+Result after this follow-up:
+
+- 33 tests run.
+- 0 failures.
+- 0 errors.
+- 0 skipped.
+- Maven verification and JAR packaging reported `BUILD SUCCESS`.
+
+---
+
 ## Current source-file responsibility index
 
 This index describes the project after V4.
@@ -1567,7 +1642,7 @@ This index describes the project after V4.
 |---|---|
 | `PharmacyApplication.java` | JavaFX startup, service retrieval, shell, dashboard, and navigation |
 | `bootstrap/ApplicationContext.java` | Single production composition point for JDBC adapters, transaction runner, coordinators, and services |
-| `bootstrap/DatabaseBootstrap.java` | Database path, Flyway migration, SQLite connections, FK enforcement, and busy timeout |
+| `bootstrap/DatabaseBootstrap.java` | Database path, Flyway migration, movement-reference integrity check, SQLite connections, FK enforcement, and busy timeout |
 
 ### Product files
 
@@ -1686,7 +1761,7 @@ This index describes the project after V4.
 
 | File | Current responsibility |
 |---|---|
-| `bootstrap/DatabaseBootstrapTest.java` | Fresh V4 migration and V1-to-V4 upgrade/FK checks |
+| `bootstrap/DatabaseBootstrapTest.java` | Fresh V4 migration, V1-to-V4 upgrade/FK checks, and valid/orphaned/mismatched movement-reference diagnostics |
 | `product/ProductValidatorTest.java` | Product validation rules |
 | `product/ProductServiceTest.java` | Product normalization, timestamps, and active duplicate behavior |
 | `product/infrastructure/JdbcProductRepositoryTest.java` | Product JDBC CRUD, duplicate behavior, and active case-insensitive POS search |

@@ -53,3 +53,7 @@ The dependency direction for sales is `sales` toward `product`, `inventory`, and
 A sale is persisted as one local SQLite transaction. The transaction reloads every selected batch and its computed stock, rejects missing/expired/insufficient stock, reloads the active product's current sale price, and validates an optional or credit-required customer. It then allocates the next invoice number, inserts the immutable sale header and lines, and appends a positive-quantity `SALE` movement for each line. Any failure rolls back the invoice number, sale records, and movements.
 
 Movement quantities remain positive. The `batch_stock` view applies direction by movement type: purchase receipts and future sale returns add quantity, while sales subtract it. This keeps movement magnitude validation simple and makes movement intent explicit.
+
+## Inventory movement reference integrity
+
+V4 removed the former single-table foreign key from `inventory_movement.reference_id` because movements can refer to different transaction tables. After every Flyway startup migration, `DatabaseBootstrap` runs a lightweight polymorphic-reference check. Every `PURCHASE_RECEIPT` must resolve to `purchase`, every `SALE` must resolve to `sale`, and any movement type without an implemented reference owner fails the check. The query returns only the first violation and startup stops with its movement ID, type, and reference ID. Future movement slices must extend this check when they introduce their transaction owner.

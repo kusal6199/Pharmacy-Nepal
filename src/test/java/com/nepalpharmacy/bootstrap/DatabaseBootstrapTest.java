@@ -6,10 +6,13 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.sql.DriverManager;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DatabaseBootstrapTest {
@@ -122,6 +125,147 @@ class DatabaseBootstrapTest {
                 }
                 assertTrue(referencesProduct);
             }
+        }
+    }
+
+    @Test
+    void startupIntegrityCheckAcceptsMatchingPurchaseAndSaleReferences() throws Exception {
+        DatabaseBootstrap bootstrap = migratedBootstrap("valid-references");
+        try (Connection connection = bootstrap.openConnection()) {
+            seedProductSupplierAndBatch(connection);
+            execute(connection, """
+                    INSERT INTO purchase (
+                        id, supplier_id, purchase_date, invoice_number,
+                        total_amount_paisa, created_at, created_by
+                    ) VALUES (
+                        'purchase-1', 'supplier-1', '2026-09-13', 'SUP-1',
+                        100, '2026-09-13T04:00:00Z', NULL
+                    )
+                    """);
+            execute(connection, """
+                    INSERT INTO sale (
+                        id, customer_id, sale_date, invoice_number, payment_method,
+                        total_amount_paisa, created_at, created_by
+                    ) VALUES (
+                        'sale-1', NULL, '2026-09-13', 1, 'CASH',
+                        150, '2026-09-13T05:00:00Z', NULL
+                    )
+                    """);
+            insertMovement(connection, "movement-purchase", "PURCHASE_RECEIPT", "purchase-1");
+            insertMovement(connection, "movement-sale", "SALE", "sale-1");
+        }
+
+        assertDoesNotThrow(bootstrap::migrate);
+    }
+
+    @Test
+    void startupIntegrityCheckRejectsOrphanedPurchaseReceiptReference() throws Exception {
+        DatabaseBootstrap bootstrap = migratedBootstrap("orphaned-purchase-reference");
+        try (Connection connection = bootstrap.openConnection()) {
+            seedProductSupplierAndBatch(connection);
+            insertMovement(connection, "movement-orphan", "PURCHASE_RECEIPT", "missing-purchase");
+        }
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, bootstrap::migrate);
+
+        assertTrue(exception.getMessage().contains("movement-orphan"));
+        assertTrue(exception.getMessage().contains("PURCHASE_RECEIPT"));
+        assertTrue(exception.getMessage().contains("missing-purchase"));
+    }
+
+    @Test
+    void startupIntegrityCheckRejectsSaleMovementPointingToAPurchase() throws Exception {
+        DatabaseBootstrap bootstrap = migratedBootstrap("mismatched-sale-reference");
+        try (Connection connection = bootstrap.openConnection()) {
+            seedProductSupplierAndBatch(connection);
+            execute(connection, """
+                    INSERT INTO purchase (
+                        id, supplier_id, purchase_date, invoice_number,
+                        total_amount_paisa, created_at, created_by
+                    ) VALUES (
+                        'purchase-only', 'supplier-1', '2026-09-13', NULL,
+                        100, '2026-09-13T04:00:00Z', NULL
+                    )
+                    """);
+            insertMovement(connection, "movement-wrong-type", "SALE", "purchase-only");
+        }
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, bootstrap::migrate);
+
+        assertTrue(exception.getMessage().contains("movement-wrong-type"));
+        assertTrue(exception.getMessage().contains("SALE"));
+        assertTrue(exception.getMessage().contains("purchase-only"));
+    }
+
+    @Test
+    void startupIntegrityCheckRejectsMovementTypesWithoutAnImplementedReferenceOwner() throws Exception {
+        DatabaseBootstrap bootstrap = migratedBootstrap("unsupported-movement-reference");
+        try (Connection connection = bootstrap.openConnection()) {
+            seedProductSupplierAndBatch(connection);
+            insertMovement(connection, "movement-return", "SALE_RETURN", "sale-not-modeled-yet");
+        }
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, bootstrap::migrate);
+
+        assertTrue(exception.getMessage().contains("movement-return"));
+        assertTrue(exception.getMessage().contains("SALE_RETURN"));
+    }
+
+    private DatabaseBootstrap migratedBootstrap(String directory) {
+        DatabaseBootstrap bootstrap = new DatabaseBootstrap(
+                temporaryDirectory.resolve(directory).resolve("pharmacy.db"));
+        bootstrap.migrate();
+        return bootstrap;
+    }
+
+    private static void seedProductSupplierAndBatch(Connection connection) throws Exception {
+        execute(connection, """
+                INSERT INTO product (
+                    id, name, generic_name, manufacturer, category, unit_of_sale, pack_size,
+                    purchase_price_paisa, sale_price_paisa, mrp_paisa, tax_rate_basis_points,
+                    reorder_threshold_base_units, is_active, created_at, updated_at
+                ) VALUES (
+                    'product-1', 'Integrity Test Product', NULL, NULL, 'TABLET', 'TABLET', NULL,
+                    100, 150, NULL, 0, 0, 1,
+                    '2026-09-13T03:00:00Z', '2026-09-13T03:00:00Z'
+                )
+                """);
+        execute(connection, """
+                INSERT INTO supplier (
+                    id, name, phone, address, pan, is_active, created_at, updated_at
+                ) VALUES (
+                    'supplier-1', 'Integrity Test Supplier', NULL, NULL, NULL, 1,
+                    '2026-09-13T03:00:00Z', '2026-09-13T03:00:00Z'
+                )
+                """);
+        execute(connection, """
+                INSERT INTO product_batch (
+                    id, product_id, batch_number, expiry_date, manufacturing_date,
+                    purchase_price_paisa, created_at
+                ) VALUES (
+                    'batch-1', 'product-1', 'CHECK-1', '2028-01-01', NULL,
+                    100, '2026-09-13T03:00:00Z'
+                )
+                """);
+    }
+
+    private static void insertMovement(
+            Connection connection, String id, String type, String referenceId) throws Exception {
+        try (var statement = connection.prepareStatement("""
+                INSERT INTO inventory_movement (
+                    id, batch_id, movement_type, quantity_base_units, reference_id, created_at
+                ) VALUES (?, 'batch-1', ?, 1, ?, '2026-09-13T06:00:00Z')
+                """)) {
+            statement.setString(1, id);
+            statement.setString(2, type);
+            statement.setString(3, referenceId);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void execute(Connection connection, String sql) throws Exception {
+        try (var statement = connection.prepareStatement(sql)) {
+            statement.executeUpdate();
         }
     }
 }
