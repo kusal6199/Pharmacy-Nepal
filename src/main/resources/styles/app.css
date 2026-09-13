@@ -1,0 +1,119 @@
+.app-root {
+    -fx-background-color: #f4f7f6;
+    -fx-font-family: "System";
+}
+
+.app-title {
+    -fx-font-size: 28px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #173b33;
+}
+
+.subtitle,
+.card-label {
+    -fx-font-size: 13px;
+    -fx-text-fill: #60736f;
+}
+
+.status-card {
+    -fx-background-color: white;
+    -fx-background-radius: 12px;
+    -fx-border-color: #dce6e2;
+    -fx-border-radius: 12px;
+}
+
+.card-value {
+    -fx-font-size: 17px;
+    -fx-font-weight: 600;
+    -fx-text-fill: #173b33;
+}
+
+.guidance {
+    -fx-font-size: 15px;
+    -fx-line-spacing: 4px;
+    -fx-text-fill: #344944;
+}
+
+.navigation {
+    -fx-background-color: #173b33;
+}
+
+.navigation-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #e8f2ef;
+    -fx-alignment: center-left;
+    -fx-padding: 11px 12px;
+    -fx-cursor: hand;
+}
+
+.navigation-button:hover {
+    -fx-background-color: #245348;
+}
+
+.section-title {
+    -fx-font-size: 22px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #173b33;
+}
+
+.form-title {
+    -fx-font-size: 18px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #173b33;
+}
+
+.form-panel,
+.form-scroll,
+.form-scroll > .viewport {
+    -fx-background-color: white;
+}
+
+.form-panel {
+    -fx-border-color: #dce6e2;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+}
+
+.field-label {
+    -fx-text-fill: #344944;
+}
+
+.feedback {
+    -fx-font-size: 12px;
+    -fx-text-fill: #60736f;
+    -fx-min-height: 18px;
+}
+
+.feedback-error {
+    -fx-text-fill: #a22626;
+}
+
+.feedback-success {
+    -fx-text-fill: #18724e;
+}
+
+.primary-button {
+    -fx-background-color: #197453;
+    -fx-text-fill: white;
+    -fx-font-weight: 600;
+    -fx-padding: 9px 15px;
+    -fx-background-radius: 6px;
+    -fx-cursor: hand;
+}
+
+.primary-button:hover {
+    -fx-background-color: #125d42;
+}
+
+.secondary-button {
+    -fx-background-color: #e6efec;
+    -fx-text-fill: #173b33;
+    -fx-padding: 9px 13px;
+    -fx-background-radius: 6px;
+    -fx-cursor: hand;
+}
+
+.table-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: #60736f;
+}
