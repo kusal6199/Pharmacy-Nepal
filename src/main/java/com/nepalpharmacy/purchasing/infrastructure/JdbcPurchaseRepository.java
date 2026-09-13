@@ -9,11 +9,13 @@ import com.nepalpharmacy.shared.infrastructure.JdbcTransactionContext;
 import com.nepalpharmacy.shared.persistence.TransactionContext;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class JdbcPurchaseRepository implements PurchaseRepository {
@@ -44,6 +46,23 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new DataAccessException("Could not create purchase.", exception);
+        }
+    }
+
+    @Override
+    public Optional<Purchase> findById(TransactionContext transaction, UUID id) {
+        String sql = """
+                SELECT id, supplier_id, purchase_date, invoice_number,
+                       total_amount_paisa, created_at, created_by
+                FROM purchase WHERE id = ?
+                """;
+        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+            statement.setString(1, id.toString());
+            try (var results = statement.executeQuery()) {
+                return results.next() ? Optional.of(map(results)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find purchase.", exception);
         }
     }
 
@@ -96,5 +115,17 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
         } else {
             statement.setString(index, value);
         }
+    }
+
+    private static Purchase map(ResultSet results) throws SQLException {
+        String createdBy = results.getString("created_by");
+        return new Purchase(
+                UUID.fromString(results.getString("id")),
+                UUID.fromString(results.getString("supplier_id")),
+                LocalDate.parse(results.getString("purchase_date")),
+                results.getString("invoice_number"),
+                results.getLong("total_amount_paisa"),
+                java.time.Instant.parse(results.getString("created_at")),
+                createdBy == null ? null : UUID.fromString(createdBy));
     }
 }

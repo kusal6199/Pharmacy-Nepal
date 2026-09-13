@@ -16,10 +16,17 @@ import com.nepalpharmacy.product.infrastructure.JdbcProductRepository;
 import com.nepalpharmacy.purchasing.PurchaseEntryRepository;
 import com.nepalpharmacy.purchasing.PurchaseLineRepository;
 import com.nepalpharmacy.purchasing.PurchaseRepository;
+import com.nepalpharmacy.purchasing.PurchaseReturnEntryRepository;
+import com.nepalpharmacy.purchasing.PurchaseReturnLineRepository;
+import com.nepalpharmacy.purchasing.PurchaseReturnRepository;
+import com.nepalpharmacy.purchasing.PurchaseReturnService;
 import com.nepalpharmacy.purchasing.PurchaseService;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseEntryRepository;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseLineRepository;
 import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseRepository;
+import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseReturnEntryRepository;
+import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseReturnLineRepository;
+import com.nepalpharmacy.purchasing.infrastructure.JdbcPurchaseReturnRepository;
 import com.nepalpharmacy.shared.infrastructure.ConnectionProvider;
 import com.nepalpharmacy.shared.infrastructure.JdbcTransactionRunner;
 import com.nepalpharmacy.shared.persistence.TransactionRunner;
@@ -27,9 +34,16 @@ import com.nepalpharmacy.sales.SaleEntryRepository;
 import com.nepalpharmacy.sales.SaleLineRepository;
 import com.nepalpharmacy.sales.SaleRepository;
 import com.nepalpharmacy.sales.SaleService;
+import com.nepalpharmacy.sales.SalesReturnEntryRepository;
+import com.nepalpharmacy.sales.SalesReturnLineRepository;
+import com.nepalpharmacy.sales.SalesReturnRepository;
+import com.nepalpharmacy.sales.SalesReturnService;
 import com.nepalpharmacy.sales.infrastructure.JdbcSaleEntryRepository;
 import com.nepalpharmacy.sales.infrastructure.JdbcSaleLineRepository;
 import com.nepalpharmacy.sales.infrastructure.JdbcSaleRepository;
+import com.nepalpharmacy.sales.infrastructure.JdbcSalesReturnEntryRepository;
+import com.nepalpharmacy.sales.infrastructure.JdbcSalesReturnLineRepository;
+import com.nepalpharmacy.sales.infrastructure.JdbcSalesReturnRepository;
 
 import java.util.Objects;
 
@@ -40,6 +54,8 @@ public final class ApplicationContext {
     private final PurchaseService purchaseService;
     private final CustomerService customerService;
     private final SaleService saleService;
+    private final SalesReturnService salesReturnService;
+    private final PurchaseReturnService purchaseReturnService;
 
     public ApplicationContext(DatabaseBootstrap database) {
         Objects.requireNonNull(database, "database");
@@ -72,12 +88,43 @@ public final class ApplicationContext {
                 saleRepository,
                 saleLineRepository,
                 movementRepository);
+        SalesReturnRepository salesReturnRepository =
+                new JdbcSalesReturnRepository(connections);
+        SalesReturnLineRepository salesReturnLineRepository =
+                new JdbcSalesReturnLineRepository(connections);
+        SalesReturnEntryRepository salesReturnEntryRepository =
+                new JdbcSalesReturnEntryRepository(
+                        transactions,
+                        saleRepository,
+                        saleLineRepository,
+                        batchRepository,
+                        productRepository,
+                        salesReturnRepository,
+                        salesReturnLineRepository,
+                        movementRepository);
+        PurchaseReturnRepository purchaseReturnRepository =
+                new JdbcPurchaseReturnRepository(connections);
+        PurchaseReturnLineRepository purchaseReturnLineRepository =
+                new JdbcPurchaseReturnLineRepository(connections);
+        PurchaseReturnEntryRepository purchaseReturnEntryRepository =
+                new JdbcPurchaseReturnEntryRepository(
+                        transactions,
+                        purchaseRepository,
+                        purchaseLineRepository,
+                        supplierRepository,
+                        batchRepository,
+                        productRepository,
+                        purchaseReturnRepository,
+                        purchaseReturnLineRepository,
+                        movementRepository);
 
         productService = new ProductService(productRepository);
         supplierService = new SupplierService(supplierRepository);
         purchaseService = new PurchaseService(purchaseEntryRepository);
         customerService = new CustomerService(customerRepository);
         saleService = new SaleService(saleEntryRepository, batchRepository);
+        salesReturnService = new SalesReturnService(salesReturnEntryRepository);
+        purchaseReturnService = new PurchaseReturnService(purchaseReturnEntryRepository);
     }
 
     public ProductService productService() {
@@ -98,5 +145,13 @@ public final class ApplicationContext {
 
     public SaleService saleService() {
         return saleService;
+    }
+
+    public SalesReturnService salesReturnService() {
+        return salesReturnService;
+    }
+
+    public PurchaseReturnService purchaseReturnService() {
+        return purchaseReturnService;
     }
 }

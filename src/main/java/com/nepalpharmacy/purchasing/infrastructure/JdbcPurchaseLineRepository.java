@@ -8,7 +8,12 @@ import com.nepalpharmacy.shared.infrastructure.JdbcTransactionContext;
 import com.nepalpharmacy.shared.persistence.TransactionContext;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class JdbcPurchaseLineRepository implements PurchaseLineRepository {
 
@@ -40,6 +45,45 @@ public final class JdbcPurchaseLineRepository implements PurchaseLineRepository 
     }
 
     @Override
+    public Optional<PurchaseLine> findById(TransactionContext transaction, UUID id) {
+        String sql = """
+                SELECT id, purchase_id, batch_id, quantity_received_base_units,
+                       unit_purchase_price_paisa, line_total_paisa
+                FROM purchase_line WHERE id = ?
+                """;
+        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+            statement.setString(1, id.toString());
+            try (var results = statement.executeQuery()) {
+                return results.next() ? Optional.of(map(results)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find purchase line.", exception);
+        }
+    }
+
+    @Override
+    public List<PurchaseLine> findByPurchaseId(
+            TransactionContext transaction, UUID purchaseId) {
+        String sql = """
+                SELECT id, purchase_id, batch_id, quantity_received_base_units,
+                       unit_purchase_price_paisa, line_total_paisa
+                FROM purchase_line WHERE purchase_id = ? ORDER BY rowid
+                """;
+        List<PurchaseLine> lines = new ArrayList<>();
+        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+            statement.setString(1, purchaseId.toString());
+            try (var results = statement.executeQuery()) {
+                while (results.next()) {
+                    lines.add(map(results));
+                }
+            }
+            return lines;
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not list purchase lines.", exception);
+        }
+    }
+
+    @Override
     public long count() {
         try (Connection connection = connections.open();
              var statement = connection.prepareStatement("SELECT COUNT(*) FROM purchase_line");
@@ -49,5 +93,15 @@ public final class JdbcPurchaseLineRepository implements PurchaseLineRepository 
         } catch (SQLException exception) {
             throw new DataAccessException("Could not count purchase lines.", exception);
         }
+    }
+
+    private static PurchaseLine map(ResultSet results) throws SQLException {
+        return new PurchaseLine(
+                UUID.fromString(results.getString("id")),
+                UUID.fromString(results.getString("purchase_id")),
+                UUID.fromString(results.getString("batch_id")),
+                results.getInt("quantity_received_base_units"),
+                results.getLong("unit_purchase_price_paisa"),
+                results.getLong("line_total_paisa"));
     }
 }

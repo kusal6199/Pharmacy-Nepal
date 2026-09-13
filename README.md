@@ -11,7 +11,7 @@ Local-first pharmacy management application scaffolded for supervised, increment
 - Flyway schema migrations
 - JUnit 5 tests
 
-The executable opens a dashboard, product master, purchase-entry screen, and point of sale. A pharmacist can maintain products, receive supplier stock by batch and expiry, and complete FEFO-guided cash, QR, or customer-linked credit sales.
+The executable opens a dashboard, product master, purchase-entry screen, point of sale, sales-return screen, and purchase-return screen. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided cash, QR, or customer-linked credit sales, and record batch-aware returns against original transaction lines.
 
 ## Prerequisites
 
@@ -115,10 +115,24 @@ The POS slice adds:
 7. Immutable sale-price snapshots and append-only `SALE` movements
 8. An on-screen invoice confirmation
 
-Discounts, split payments, returns, cancellation, credit-ledger reporting, barcode scanning, physical printing, authentication, and CBMS integration remain outside V4.
+### Sales and purchase returns
+
+The V5 returns slice adds:
+
+1. Sales returns found by the original sequential sale invoice number
+2. Purchase returns selected from recent purchase receipts
+3. Exact original-line and original-batch traceability
+4. Multiple partial returns with live remaining-quantity validation
+5. Refund/value totals from the original immutable sale-price or purchase-cost snapshot
+6. Current on-hand stock protection for supplier returns
+7. Append-only `SALE_RETURN` and `PURCHASE_RETURN` movements
+8. Separate sequential return-number counters allocated inside each atomic return transaction
+9. Startup integrity validation for all four movement reference-owner types
+
+Discounts, split payments, cancellation/voiding, credit-ledger reporting, barcode scanning, physical printing, authentication, and CBMS integration remain outside V5.
 
 See `docs/MVP_SCOPE.md` for the scope boundary and `docs/ARCHITECTURE.md` for the initial design.
 
 ## Detailed implementation history
 
-See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V4, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.
+See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V5, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.

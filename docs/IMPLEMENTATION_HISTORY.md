@@ -1,8 +1,8 @@
 # Pharmacy MVP implementation history
 
 Last updated: 2026-09-13  
-Current database schema: V4  
-Current completed vertical slices: product master, purchase entry, and POS/sales
+Current database schema: V5
+Current completed vertical slices: product master, purchase entry, POS/sales, and sales/purchase returns
 
 ## Purpose and maintenance rule
 
@@ -26,7 +26,7 @@ For each future change, record:
 
 The first Git commit is `fc9ad7a` (`Initial pharmacy MVP scaffold: JavaFX + SQLite + Flyway foundation`, dated 2026-09-13). That commit contains both the V1 foundation migration and the V2 product-master migration together with the product-master application code. Therefore, V1 and V2 below are a logical migration-by-migration reconstruction from the repository, not two independently verifiable Git commits. This report does not invent a commit boundary that does not exist.
 
-V3 is the purchase-entry slice built on V2. V4 is the POS/sales slice built on V3. Database version numbers refer to Flyway schema migrations; they are not semantic application-release numbers.
+V3 is the purchase-entry slice built on V2. V4 is the POS/sales slice built on V3. V5 adds sales and purchase returns. Database version numbers refer to Flyway schema migrations; they are not semantic application-release numbers.
 
 ---
 
@@ -1817,3 +1817,103 @@ Purpose: <why this change exists>
 
 - ...
 ```
+
+---
+
+## V5 — Batch-aware sales and purchase returns
+
+Date: 2026-09-13
+Migration: `V5__create_returns.sql`
+Purpose: record auditable partial or full returns against exact original transaction lines while preserving immutable source transactions and movement-derived stock.
+
+### V5-001 — Files changed
+
+- Added `src/main/resources/db/migration/V5__create_returns.sql` for return headers, lines, counters, movement-type expansion, indexes, and the rebuilt stock view.
+- Added sales-return domain files: `SalesReturn.java`, `SalesReturnDraft.java`, `SalesReturnLine.java`, `SalesReturnLineDraft.java`, `SalesReturnReason.java`, `SalesReturnLineAvailability.java`, `SalesReturnSource.java`, `SalesReturnSourceLine.java`, `SalesReturnValidator.java`, and `SalesReturnValidationException.java`.
+- Added sales-return contracts and service: `SalesReturnRepository.java`, `SalesReturnLineRepository.java`, `SalesReturnEntryRepository.java`, and `SalesReturnService.java`.
+- Added sales-return JDBC files: `JdbcSalesReturnRepository.java`, `JdbcSalesReturnLineRepository.java`, and `JdbcSalesReturnEntryRepository.java`.
+- Added `sales/ui/SalesReturnScreen.java`.
+- Added purchase-return domain files: `PurchaseReturn.java`, `PurchaseReturnDraft.java`, `PurchaseReturnLine.java`, `PurchaseReturnLineDraft.java`, `PurchaseReturnReason.java`, `PurchaseReturnLineAvailability.java`, `PurchaseReturnSource.java`, `PurchaseReturnSourceLine.java`, `PurchaseReturnValidator.java`, and `PurchaseReturnValidationException.java`.
+- Added purchase-return contracts and service: `PurchaseReturnRepository.java`, `PurchaseReturnLineRepository.java`, `PurchaseReturnEntryRepository.java`, and `PurchaseReturnService.java`.
+- Added purchase-return JDBC files: `JdbcPurchaseReturnRepository.java`, `JdbcPurchaseReturnLineRepository.java`, and `JdbcPurchaseReturnEntryRepository.java`.
+- Added `purchasing/ui/PurchaseReturnScreen.java`.
+- Modified `SaleRepository.java` and `JdbcSaleRepository.java` with transaction-scoped lookup by sale ID and invoice number plus row mapping for return source validation.
+- Modified `SaleLineRepository.java` and `JdbcSaleLineRepository.java` with transaction-scoped lookup by line ID and ordered listing by sale ID.
+- Modified `PurchaseRepository.java` and `JdbcPurchaseRepository.java` with transaction-scoped lookup by purchase ID and canonical purchase row mapping.
+- Modified `PurchaseLineRepository.java` and `JdbcPurchaseLineRepository.java` with transaction-scoped lookup by line ID and ordered listing by purchase ID.
+- Modified `InventoryMovementType.java` to add `PURCHASE_RETURN`; the existing `SALE_RETURN` value is now implemented rather than reserved.
+- Modified `bootstrap/ApplicationContext.java` to construct every new JDBC adapter, coordinator, and service at the one existing production composition point.
+- Modified `PharmacyApplication.java` to retrieve the two services, add shell/dashboard navigation, widen the navigation area, and update dashboard capability text.
+- Modified `bootstrap/DatabaseBootstrap.java` to validate return movement owners in the startup integrity query.
+- Added `SalesReturnValidatorTest.java`, `JdbcSalesReturnEntryRepositoryTest.java`, `PurchaseReturnValidatorTest.java`, and `JdbcPurchaseReturnEntryRepositoryTest.java`.
+- Modified `DatabaseBootstrapTest.java` for schema V5, four additional tables, valid return references, and malformed return-reference cases.
+- Modified `JdbcSaleEntryRepositoryTest.java` only to keep its deliberately failing anonymous line-repository test double compatible with the newly added narrow read methods; its V4 assertions are unchanged.
+- Modified `README.md`, `docs/ARCHITECTURE.md`, and this append-only `docs/IMPLEMENTATION_HISTORY.md` entry.
+- Added no dependency, plugin, framework, editable stock column, second transaction abstraction, or CSS file.
+
+### V5-002 — Database effect
+
+- Added singular header tables `sales_return` and `purchase_return`, both with UUID-text primary keys, unique positive sequential `return_number`, original-header foreign keys, ISO-8601 date/time text, controlled-reason checks, exact integer-paisa totals, optional notes limited to 500 characters, and nullable `created_by` placeholders matching prior slices.
+- `sales_return` stores `refund_method` using the existing `CASH`, `QR`, and `CREDIT` values and requires a positive total.
+- `purchase_return` copies the original supplier ID for direct validation and permits a zero total because V3 intentionally permits zero-cost purchase lines.
+- Added `sales_return_line` with foreign keys to its return header, original `sale_line`, product, and exact batch. Quantity, original unit price, and total are positive; each original line may occur only once within one return header.
+- Added `purchase_return_line` with equivalent header/original-line/product/batch traceability. Quantity is positive; original unit cost and total are non-negative to preserve zero-cost purchase behavior.
+- Added indexes on both original-header IDs, both return-line parent IDs, both original-line IDs, both batch IDs, and purchase-return supplier ID.
+- Seeded independent `SALES_RETURN` and `PURCHASE_RETURN` counter rows in the existing `invoice_counter` table, both starting at one.
+- Rebuilt `inventory_movement` with an explicit four-value check: `PURCHASE_RECEIPT`, `SALE`, `SALE_RETURN`, and `PURCHASE_RETURN`. Existing rows are copied unchanged before the old table is removed and the replacement receives the canonical table name.
+- Recreated movement batch/reference indexes after the SQLite table rebuild.
+- Recreated `batch_stock` so positive-magnitude `PURCHASE_RECEIPT` and `SALE_RETURN` rows add stock, while positive-magnitude `SALE` and `PURCHASE_RETURN` rows subtract stock.
+- V1 through V4 were not edited. Fresh databases apply five migrations; a V1 database applies four remaining migrations and retains valid product/batch references.
+- Flyway owns the migration transaction. Runtime returns use the existing shared transaction abstraction.
+
+### V5-003 — Domain and validation effect
+
+- Added immutable return header and line records, normalized drafts, UI source read models, and live-availability read models in their owning `sales` and `purchasing` packages.
+- All return money remains integer paisa and all quantities remain integer smallest saleable base units. `Math.multiplyExact` and `Math.addExact` reject line or document total overflow.
+- Sales reasons are controlled by `WRONG_MEDICINE`, `CUSTOMER_RETURN`, `DAMAGED`, `BILLING_ERROR`, and `OTHER`; purchase reasons are `DAMAGED`, `WRONG_ITEM`, `EXPIRED_ON_RECEIPT`, `SUPPLIER_RECALL`, and `OTHER`. SQLite mirrors both enum sets with `CHECK` constraints.
+- Both validators require an original transaction, return date, reason, at least one line, non-null original-line/batch IDs, positive quantities, non-duplicated original lines within the same return, and notes of at most 500 characters.
+- Sales validation requires a refund method and positive original unit price/total. It verifies sale-line ownership, the exact original batch, and sold quantity minus the live sum of earlier returns.
+- Purchase validation verifies the original supplier, purchase-line ownership, exact original batch, received quantity minus prior returns, and an aggregate per-batch limit against live movement-derived stock.
+- Coordinator-side repricing replaces UI draft values with immutable original `sale_line.unit_sale_price_paisa` or `purchase_line.unit_purchase_price_paisa` values before final validation and persistence.
+- Blank notes normalize to null; nonblank notes are trimmed. Original sale/purchase headers and lines are never changed or deleted.
+
+### V5-004 — Repository and transaction effect
+
+- Kept header, line, and atomic-entry responsibilities in three narrow interfaces per return type. Header repositories allocate numbers and insert headers; line repositories insert and sum prior return quantities; entry repositories load sources and save atomically.
+- Extended existing sale/purchase header and line interfaces only with transaction-scoped original-document reads.
+- `JdbcSalesReturnEntryRepository` reloads the sale, lines, batches/products, prior returns, and original prices; validates; increments the counter; inserts header/lines; and appends `SALE_RETURN` movements referencing the return header ID.
+- `JdbcPurchaseReturnEntryRepository` also reloads original supplier and current batch stock, restores original cost, and appends `PURCHASE_RETURN` movements referencing the return header ID.
+- Any validation or persistence failure rolls back the return header, lines, counter change, and movements. Computed stock remains unchanged after rollback.
+- New screens depend only on services; services depend on entry interfaces; coordinators depend on narrow interfaces and the shared `TransactionRunner`. Production construction remains exclusively in `ApplicationContext`.
+- Lower-level product, inventory, and party packages gained no reverse dependency on sales or purchasing.
+- The startup diagnostic now enforces `PURCHASE_RECEIPT -> purchase`, `SALE -> sale`, `SALE_RETURN -> sales_return`, and `PURCHASE_RETURN -> purchase_return`, while rejecting unrecognized types and reporting the first malformed movement without changing data.
+
+### V5-005 — UI and navigation effect
+
+- The Sales Return screen finds a sale by positive invoice number and displays product, batch, expiry, sold, previously returned, remaining returnable, and original unit-price values.
+- It supports selected-line base-unit quantities, removable draft lines, date, controlled reason, refund method, notes, calculated total, atomic save, confirmation, and post-save source refresh.
+- The Purchase Return screen selects one of the latest 25 purchases because supplier invoice text is nullable and non-unique. It displays supplier/invoice context and product, batch, expiry, received, prior-return, remaining, current-stock, and original-cost values.
+- It provides the parallel quantity, draft, date, reason, notes, total, atomic-save, confirmation, and refresh workflow.
+- Both screens delegate source loading, line construction, totals, and return execution to their services. They contain no stock, ownership, pricing-snapshot, or persistence rules.
+- Added `Sales returns` and `Purchase returns` shell and dashboard buttons, updated dashboard wording, and increased navigation preferred width from 150 to 175 pixels.
+- Reused existing card, table, button, feedback, total, and scroll styles; no CSS was changed.
+
+### V5-006 — Tests and verification
+
+- `SalesReturnValidatorTest` covers zero/negative quantity, wrong sale ownership, wrong batch, cumulative over-return, valid partial return, and exact price arithmetic.
+- `JdbcSalesReturnEntryRepositoryTest` covers full, partial, and multiple returns; live earlier-return totals; over-return; foreign line; wrong batch; zero/negative quantity; original-price snapshots after current repricing; stock restoration; movement type/header reference; unchanged source rows; sequential committed numbers; and forced movement failure rollback without consuming a number.
+- `PurchaseReturnValidatorTest` covers zero/negative quantity, supplier mismatch, wrong purchase ownership, wrong batch, cumulative over-return, current-stock rejection, valid partial return, and exact cost arithmetic.
+- `JdbcPurchaseReturnEntryRepositoryTest` covers full, partial, and multiple returns; live earlier-return totals; original-quantity over-return; the purchased-100/sold-80/reject-30 stock case; foreign line; wrong batch; supplier mismatch; original-cost snapshots; stock reduction; movement type/header reference; unchanged source rows; sequential numbers; and forced movement failure rollback without consuming a number.
+- `DatabaseBootstrapTest` now expects five fresh migrations and fourteen application tables, accepts all four valid movement-owner mappings, and rejects malformed reference/type pairings in seven scenarios.
+- Existing V1-V4 product, purchase, sale, FEFO, snapshot, rollback, and integrity tests remain active.
+- `./mvnw test`: 66 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- `./mvnw verify`: 66 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+
+### V5-007 — Decisions, limitations, and excluded scope
+
+- Chose independent `SALES_RETURN` and `PURCHASE_RETURN` rows in the existing counter table so the document families advance separately while reusing the established compare-and-update pattern.
+- The request contained a numbering conflict: same-transaction allocation and the required failed-attempt test imply counter rollback, while another sentence requested that rolled-back numbers never be reused. V5 follows the actual V4 pattern and required test: committed numbers are positive, unique, sequential, and gap-free; failed attempts consume no number.
+- Movement `reference_id` points to the return header, matching existing receipt and sale movements. Exact original-line and batch traceability is stored on return lines.
+- Purchase lookup uses recent purchases rather than supplier-invoice search because supplier invoice values are nullable and not unique; sales lookup uses its unique generated invoice number.
+- Excluded Udharo ledger/accounting postings, discounts, split payments, cancellation/voiding, reports, expiry/low-stock dashboards, barcode scanning, physical printing, authentication/RBAC, legal invoice formatting, CBMS, cloud sync, and multi-branch behavior.
+- `CREDIT` refunds are recorded as return metadata only; a future credit-ledger slice must interpret their financial effect.

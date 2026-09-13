@@ -7,9 +7,13 @@ import com.nepalpharmacy.party.SupplierService;
 import com.nepalpharmacy.product.ProductService;
 import com.nepalpharmacy.product.ui.ProductScreen;
 import com.nepalpharmacy.purchasing.PurchaseService;
+import com.nepalpharmacy.purchasing.PurchaseReturnService;
 import com.nepalpharmacy.purchasing.ui.PurchaseScreen;
+import com.nepalpharmacy.purchasing.ui.PurchaseReturnScreen;
 import com.nepalpharmacy.sales.SaleService;
+import com.nepalpharmacy.sales.SalesReturnService;
 import com.nepalpharmacy.sales.ui.POSScreen;
+import com.nepalpharmacy.sales.ui.SalesReturnScreen;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -30,6 +34,8 @@ public final class PharmacyApplication extends Application {
     private PurchaseService purchaseService;
     private CustomerService customerService;
     private SaleService saleService;
+    private SalesReturnService salesReturnService;
+    private PurchaseReturnService purchaseReturnService;
     private int migrationsExecuted;
 
     @Override
@@ -42,6 +48,8 @@ public final class PharmacyApplication extends Application {
         purchaseService = context.purchaseService();
         customerService = context.customerService();
         saleService = context.saleService();
+        salesReturnService = context.salesReturnService();
+        purchaseReturnService = context.purchaseReturnService();
 
         shell.setTop(createHeader());
         shell.setLeft(createNavigation());
@@ -81,11 +89,16 @@ public final class PharmacyApplication extends Application {
         purchases.setOnAction(event -> showPurchases());
         Button pos = navigationButton("Point of sale");
         pos.setOnAction(event -> showPointOfSale());
+        Button salesReturns = navigationButton("Sales returns");
+        salesReturns.setOnAction(event -> showSalesReturns());
+        Button purchaseReturns = navigationButton("Purchase returns");
+        purchaseReturns.setOnAction(event -> showPurchaseReturns());
 
-        VBox navigation = new VBox(8, dashboard, products, purchases, pos);
+        VBox navigation = new VBox(8, dashboard, products, purchases, pos,
+                salesReturns, purchaseReturns);
         navigation.getStyleClass().add("navigation");
         navigation.setPadding(new Insets(12));
-        navigation.setPrefWidth(150);
+        navigation.setPrefWidth(175);
         return navigation;
     }
 
@@ -101,12 +114,13 @@ public final class PharmacyApplication extends Application {
         HBox cards = new HBox(16,
                 statusCard("Database", "Ready"),
                 statusCard("Schema updates", Integer.toString(migrationsExecuted)),
-                statusCard("Current capability", "Product + purchasing + POS"));
+                statusCard("Current capability", "Catalog + purchases + POS + returns"));
         cards.setPadding(new Insets(12, 28, 28, 28));
 
         Label guidance = new Label(
                 "Maintain the product catalog, receive supplier stock by batch and expiry, then use " +
-                "Point of sale for FEFO-guided cash, QR, or credit sales.");
+                "Point of sale for FEFO-guided cash, QR, or credit sales, and record returns " +
+                "against their original transaction lines.");
         guidance.getStyleClass().add("guidance");
         guidance.setWrapText(true);
         guidance.setMaxWidth(760);
@@ -120,8 +134,15 @@ public final class PharmacyApplication extends Application {
         Button openPos = new Button("Open point of sale");
         openPos.getStyleClass().add("primary-button");
         openPos.setOnAction(event -> showPointOfSale());
+        Button openSalesReturns = new Button("Record sales return");
+        openSalesReturns.getStyleClass().add("secondary-button");
+        openSalesReturns.setOnAction(event -> showSalesReturns());
+        Button openPurchaseReturns = new Button("Record purchase return");
+        openPurchaseReturns.getStyleClass().add("secondary-button");
+        openPurchaseReturns.setOnAction(event -> showPurchaseReturns());
 
-        HBox actions = new HBox(10, openProducts, openPurchases, openPos);
+        HBox actions = new HBox(10, openProducts, openPurchases, openPos,
+                openSalesReturns, openPurchaseReturns);
         VBox content = new VBox(20, cards, guidance, actions);
         content.setPadding(new Insets(8, 28, 28, 28));
         shell.setCenter(content);
@@ -137,6 +158,14 @@ public final class PharmacyApplication extends Application {
 
     private void showPointOfSale() {
         shell.setCenter(new POSScreen(saleService, customerService, productService).view());
+    }
+
+    private void showSalesReturns() {
+        shell.setCenter(new SalesReturnScreen(salesReturnService).view());
+    }
+
+    private void showPurchaseReturns() {
+        shell.setCenter(new PurchaseReturnScreen(purchaseReturnService).view());
     }
 
     private VBox statusCard(String label, String value) {

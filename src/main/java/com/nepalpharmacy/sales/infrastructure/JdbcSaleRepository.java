@@ -8,8 +8,13 @@ import com.nepalpharmacy.shared.infrastructure.JdbcTransactionContext;
 import com.nepalpharmacy.shared.persistence.TransactionContext;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class JdbcSaleRepository implements SaleRepository {
 
@@ -82,6 +87,17 @@ public final class JdbcSaleRepository implements SaleRepository {
     }
 
     @Override
+    public Optional<Sale> findById(TransactionContext transaction, UUID id) {
+        return find(transaction, "s.id = ?", id.toString());
+    }
+
+    @Override
+    public Optional<Sale> findByInvoiceNumber(
+            TransactionContext transaction, long invoiceNumber) {
+        return find(transaction, "s.invoice_number = ?", invoiceNumber);
+    }
+
+    @Override
     public long count() {
         try (Connection connection = connections.open();
              var statement = connection.prepareStatement("SELECT COUNT(*) FROM sale");
@@ -105,6 +121,38 @@ public final class JdbcSaleRepository implements SaleRepository {
         } catch (SQLException exception) {
             throw new DataAccessException("Could not read sale invoice counter.", exception);
         }
+    }
+
+    private Optional<Sale> find(
+            TransactionContext transaction, String predicate, Object value) {
+        String sql = """
+                SELECT s.id, s.customer_id, s.sale_date, s.invoice_number,
+                       s.payment_method, s.total_amount_paisa, s.created_at, s.created_by
+                FROM sale s
+                WHERE %s
+                """.formatted(predicate);
+        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+            statement.setObject(1, value);
+            try (var results = statement.executeQuery()) {
+                return results.next() ? Optional.of(map(results)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find sale.", exception);
+        }
+    }
+
+    private static Sale map(ResultSet results) throws SQLException {
+        String customerId = results.getString("customer_id");
+        String createdBy = results.getString("created_by");
+        return new Sale(
+                UUID.fromString(results.getString("id")),
+                customerId == null ? null : UUID.fromString(customerId),
+                LocalDate.parse(results.getString("sale_date")),
+                results.getLong("invoice_number"),
+                com.nepalpharmacy.sales.PaymentMethod.valueOf(results.getString("payment_method")),
+                results.getLong("total_amount_paisa"),
+                Instant.parse(results.getString("created_at")),
+                createdBy == null ? null : UUID.fromString(createdBy));
     }
 
     private static void setNullableString(

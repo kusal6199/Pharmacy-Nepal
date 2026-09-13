@@ -27,7 +27,7 @@ class DatabaseBootstrapTest {
 
         int migrationsExecuted = bootstrap.migrate();
 
-        assertEquals(4, migrationsExecuted);
+        assertEquals(5, migrationsExecuted);
         assertTrue(Files.exists(databaseFile));
 
         try (var connection = DriverManager.getConnection(bootstrap.jdbcUrl());
@@ -37,11 +37,12 @@ class DatabaseBootstrapTest {
                      WHERE type = 'table'
                        AND name IN ('product', 'supplier', 'product_batch', 'purchase',
                                     'purchase_line', 'inventory_movement', 'customer',
-                                    'invoice_counter', 'sale', 'sale_line')
+                                    'invoice_counter', 'sale', 'sale_line', 'sales_return',
+                                    'sales_return_line', 'purchase_return', 'purchase_return_line')
                      """)) {
             try (var results = statement.executeQuery()) {
                 assertTrue(results.next());
-                assertEquals(10, results.getInt(1));
+                assertEquals(14, results.getInt(1));
             }
         }
 
@@ -95,7 +96,7 @@ class DatabaseBootstrapTest {
             batch.executeUpdate();
         }
 
-        assertEquals(3, bootstrap.migrate());
+        assertEquals(4, bootstrap.migrate());
 
         try (var connection = bootstrap.openConnection();
              var product = connection.prepareStatement("""
@@ -129,7 +130,7 @@ class DatabaseBootstrapTest {
     }
 
     @Test
-    void startupIntegrityCheckAcceptsMatchingPurchaseAndSaleReferences() throws Exception {
+    void startupIntegrityCheckAcceptsAllMatchingTransactionReferences() throws Exception {
         DatabaseBootstrap bootstrap = migratedBootstrap("valid-references");
         try (Connection connection = bootstrap.openConnection()) {
             seedProductSupplierAndBatch(connection);
@@ -151,8 +152,28 @@ class DatabaseBootstrapTest {
                         150, '2026-09-13T05:00:00Z', NULL
                     )
                     """);
+            execute(connection, """
+                    INSERT INTO sales_return (
+                        id, return_number, original_sale_id, return_date, reason,
+                        refund_method, total_amount_paisa, notes, created_at, created_by
+                    ) VALUES (
+                        'sales-return-1', 1, 'sale-1', '2026-09-13', 'CUSTOMER_RETURN',
+                        'CASH', 150, NULL, '2026-09-13T06:00:00Z', NULL
+                    )
+                    """);
+            execute(connection, """
+                    INSERT INTO purchase_return (
+                        id, return_number, original_purchase_id, supplier_id, return_date,
+                        reason, notes, total_amount_paisa, created_at, created_by
+                    ) VALUES (
+                        'purchase-return-1', 1, 'purchase-1', 'supplier-1', '2026-09-13',
+                        'DAMAGED', NULL, 100, '2026-09-13T06:00:00Z', NULL
+                    )
+                    """);
             insertMovement(connection, "movement-purchase", "PURCHASE_RECEIPT", "purchase-1");
             insertMovement(connection, "movement-sale", "SALE", "sale-1");
+            insertMovement(connection, "movement-sales-return", "SALE_RETURN", "sales-return-1");
+            insertMovement(connection, "movement-purchase-return", "PURCHASE_RETURN", "purchase-return-1");
         }
 
         assertDoesNotThrow(bootstrap::migrate);
@@ -198,17 +219,42 @@ class DatabaseBootstrapTest {
     }
 
     @Test
-    void startupIntegrityCheckRejectsMovementTypesWithoutAnImplementedReferenceOwner() throws Exception {
-        DatabaseBootstrap bootstrap = migratedBootstrap("unsupported-movement-reference");
+    void startupIntegrityCheckRejectsSalesReturnMovementPointingToASale() throws Exception {
+        DatabaseBootstrap bootstrap = migratedBootstrap("mismatched-return-reference");
         try (Connection connection = bootstrap.openConnection()) {
             seedProductSupplierAndBatch(connection);
-            insertMovement(connection, "movement-return", "SALE_RETURN", "sale-not-modeled-yet");
+            execute(connection, """
+                    INSERT INTO sale (
+                        id, customer_id, sale_date, invoice_number, payment_method,
+                        total_amount_paisa, created_at, created_by
+                    ) VALUES (
+                        'sale-not-return', NULL, '2026-09-13', 1, 'CASH',
+                        150, '2026-09-13T05:00:00Z', NULL
+                    )
+                    """);
+            insertMovement(connection, "movement-return", "SALE_RETURN", "sale-not-return");
         }
 
         IllegalStateException exception = assertThrows(IllegalStateException.class, bootstrap::migrate);
 
         assertTrue(exception.getMessage().contains("movement-return"));
         assertTrue(exception.getMessage().contains("SALE_RETURN"));
+        assertTrue(exception.getMessage().contains("sale-not-return"));
+    }
+
+    @Test
+    void startupIntegrityCheckRejectsOrphanedPurchaseReturnReference() throws Exception {
+        DatabaseBootstrap bootstrap = migratedBootstrap("orphaned-purchase-return-reference");
+        try (Connection connection = bootstrap.openConnection()) {
+            seedProductSupplierAndBatch(connection);
+            insertMovement(connection, "movement-purchase-return", "PURCHASE_RETURN", "missing-return");
+        }
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, bootstrap::migrate);
+
+        assertTrue(exception.getMessage().contains("movement-purchase-return"));
+        assertTrue(exception.getMessage().contains("PURCHASE_RETURN"));
+        assertTrue(exception.getMessage().contains("missing-return"));
     }
 
     private DatabaseBootstrap migratedBootstrap(String directory) {

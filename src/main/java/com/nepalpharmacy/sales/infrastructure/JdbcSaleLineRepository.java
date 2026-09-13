@@ -8,7 +8,12 @@ import com.nepalpharmacy.shared.infrastructure.JdbcTransactionContext;
 import com.nepalpharmacy.shared.persistence.TransactionContext;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class JdbcSaleLineRepository implements SaleLineRepository {
 
@@ -40,6 +45,44 @@ public final class JdbcSaleLineRepository implements SaleLineRepository {
     }
 
     @Override
+    public Optional<SaleLine> findById(TransactionContext transaction, UUID id) {
+        String sql = """
+                SELECT id, sale_id, batch_id, quantity_sold_base_units,
+                       unit_sale_price_paisa, line_total_paisa
+                FROM sale_line WHERE id = ?
+                """;
+        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+            statement.setString(1, id.toString());
+            try (var results = statement.executeQuery()) {
+                return results.next() ? Optional.of(map(results)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not find sale line.", exception);
+        }
+    }
+
+    @Override
+    public List<SaleLine> findBySaleId(TransactionContext transaction, UUID saleId) {
+        String sql = """
+                SELECT id, sale_id, batch_id, quantity_sold_base_units,
+                       unit_sale_price_paisa, line_total_paisa
+                FROM sale_line WHERE sale_id = ? ORDER BY rowid
+                """;
+        List<SaleLine> lines = new ArrayList<>();
+        try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
+            statement.setString(1, saleId.toString());
+            try (var results = statement.executeQuery()) {
+                while (results.next()) {
+                    lines.add(map(results));
+                }
+            }
+            return lines;
+        } catch (SQLException exception) {
+            throw new DataAccessException("Could not list sale lines.", exception);
+        }
+    }
+
+    @Override
     public long count() {
         try (Connection connection = connections.open();
              var statement = connection.prepareStatement("SELECT COUNT(*) FROM sale_line");
@@ -49,5 +92,15 @@ public final class JdbcSaleLineRepository implements SaleLineRepository {
         } catch (SQLException exception) {
             throw new DataAccessException("Could not count sale lines.", exception);
         }
+    }
+
+    private static SaleLine map(ResultSet results) throws SQLException {
+        return new SaleLine(
+                UUID.fromString(results.getString("id")),
+                UUID.fromString(results.getString("sale_id")),
+                UUID.fromString(results.getString("batch_id")),
+                results.getInt("quantity_sold_base_units"),
+                results.getLong("unit_sale_price_paisa"),
+                results.getLong("line_total_paisa"));
     }
 }

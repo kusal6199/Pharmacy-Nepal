@@ -49,11 +49,20 @@ public final class DatabaseBootstrap {
                     ON purchase_header.id = movement.reference_id
                 LEFT JOIN sale sale_header
                     ON sale_header.id = movement.reference_id
+                LEFT JOIN sales_return sales_return_header
+                    ON sales_return_header.id = movement.reference_id
+                LEFT JOIN purchase_return purchase_return_header
+                    ON purchase_return_header.id = movement.reference_id
                 WHERE (movement.movement_type = 'PURCHASE_RECEIPT'
                        AND purchase_header.id IS NULL)
                    OR (movement.movement_type = 'SALE'
                        AND sale_header.id IS NULL)
-                   OR movement.movement_type NOT IN ('PURCHASE_RECEIPT', 'SALE')
+                   OR (movement.movement_type = 'SALE_RETURN'
+                       AND sales_return_header.id IS NULL)
+                   OR (movement.movement_type = 'PURCHASE_RETURN'
+                       AND purchase_return_header.id IS NULL)
+                   OR movement.movement_type NOT IN (
+                       'PURCHASE_RECEIPT', 'SALE', 'SALE_RETURN', 'PURCHASE_RETURN')
                 LIMIT 1
                 """;
 

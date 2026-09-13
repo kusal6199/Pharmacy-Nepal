@@ -40,6 +40,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -199,6 +200,18 @@ class JdbcSaleEntryRepositoryTest {
             @Override
             public void insert(TransactionContext transaction, SaleLine line) {
                 throw new DataAccessException("Forced line failure.");
+            }
+
+            @Override
+            public java.util.Optional<SaleLine> findById(
+                    TransactionContext transaction, UUID id) {
+                return java.util.Optional.empty();
+            }
+
+            @Override
+            public List<SaleLine> findBySaleId(
+                    TransactionContext transaction, UUID saleId) {
+                return List.of();
             }
 
             @Override
