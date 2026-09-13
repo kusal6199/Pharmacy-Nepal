@@ -6,6 +6,9 @@ import com.nepalpharmacy.product.ProductNotFoundException;
 import com.nepalpharmacy.product.ProductRepository;
 import com.nepalpharmacy.product.ProductRepositoryException;
 import com.nepalpharmacy.product.UnitOfSale;
+import com.nepalpharmacy.shared.infrastructure.ConnectionProvider;
+import com.nepalpharmacy.shared.infrastructure.JdbcTransactionContext;
+import com.nepalpharmacy.shared.persistence.TransactionContext;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -90,15 +93,29 @@ public final class JdbcProductRepository implements ProductRepository {
 
     @Override
     public Optional<Product> findById(UUID id) {
+        try (var connection = connections.open()) {
+            return findById(connection, id);
+        } catch (SQLException exception) {
+            throw new ProductRepositoryException("Could not load product.", exception);
+        }
+    }
+
+    @Override
+    public Optional<Product> findById(TransactionContext transaction, UUID id) {
+        try {
+            return findById(JdbcTransactionContext.connection(transaction), id);
+        } catch (SQLException exception) {
+            throw new ProductRepositoryException("Could not load product.", exception);
+        }
+    }
+
+    private Optional<Product> findById(java.sql.Connection connection, UUID id) throws SQLException {
         String sql = "SELECT " + COLUMNS + " FROM product WHERE id = ?";
-        try (var connection = connections.open();
-             var statement = connection.prepareStatement(sql)) {
+        try (var statement = connection.prepareStatement(sql)) {
             statement.setString(1, id.toString());
             try (var results = statement.executeQuery()) {
                 return results.next() ? Optional.of(map(results)) : Optional.empty();
             }
-        } catch (SQLException exception) {
-            throw new ProductRepositoryException("Could not load product.", exception);
         }
     }
 
@@ -117,6 +134,27 @@ public final class JdbcProductRepository implements ProductRepository {
             return products;
         } catch (SQLException exception) {
             throw new ProductRepositoryException("Could not list products.", exception);
+        }
+    }
+
+    @Override
+    public List<Product> searchActiveByName(String query, int limit) {
+        String sql = "SELECT " + COLUMNS + " FROM product "
+                + "WHERE is_active = 1 AND instr(lower(name), lower(?)) > 0 "
+                + "ORDER BY name COLLATE NOCASE, manufacturer COLLATE NOCASE LIMIT ?";
+        List<Product> products = new ArrayList<>();
+        try (var connection = connections.open();
+             var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, query);
+            statement.setInt(2, limit);
+            try (var results = statement.executeQuery()) {
+                while (results.next()) {
+                    products.add(map(results));
+                }
+            }
+            return products;
+        } catch (SQLException exception) {
+            throw new ProductRepositoryException("Could not search products.", exception);
         }
     }
 
@@ -223,4 +261,3 @@ public final class JdbcProductRepository implements ProductRepository {
         }
     }
 }
-

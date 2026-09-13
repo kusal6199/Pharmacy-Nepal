@@ -11,7 +11,7 @@ Local-first pharmacy management application scaffolded for supervised, increment
 - Flyway schema migrations
 - JUnit 5 tests
 
-The executable opens a dashboard and a product-master screen. A pharmacist can add, list, edit, and deactivate products. Purchasing, batch stock, and POS remain separate future slices.
+The executable opens a dashboard, product master, purchase-entry screen, and point of sale. A pharmacist can maintain products, receive supplier stock by batch and expiry, and complete FEFO-guided cash, QR, or customer-linked credit sales.
 
 ## Prerequisites
 
@@ -74,7 +74,9 @@ If the action does not inherit Java 17, prefix it with:
 JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 ```
 
-## Completed first vertical slice
+## Completed vertical slices
+
+### Product master
 
 The product master includes:
 
@@ -87,6 +89,36 @@ The product master includes:
 7. Active/inactive status instead of deletion
 8. Add, list, and edit workflows in JavaFX
 
-Purchase entry, batch expiry, stock movements, and POS are intentionally not part of this slice.
+### Purchase entry
+
+The purchase slice adds:
+
+1. Active suppliers with optional phone, address, and PAN
+2. Purchase headers with one or more base-unit line items
+3. Product batches with required expiry and optional manufacturing date
+4. Exact batch purchase prices stored in paisa
+5. Append-only `PURCHASE_RECEIPT` movements as the stock source of truth
+6. Matching-batch reuse and FEFO-ordered available-stock queries
+7. One SQLite transaction for the header, lines, batches, and movements
+8. A recent-purchases reference table in JavaFX
+
+### Point of sale
+
+The POS slice adds:
+
+1. Fast active-product name search
+2. Automatic FEFO batch suggestion with manual batch override
+3. Live stock and expiry validation inside the save transaction
+4. Cash, QR/digital, and customer-linked credit/Udharo payment methods
+5. Inline customer creation for credit sales
+6. Sequential, transactionally allocated invoice numbers
+7. Immutable sale-price snapshots and append-only `SALE` movements
+8. An on-screen invoice confirmation
+
+Discounts, split payments, returns, cancellation, credit-ledger reporting, barcode scanning, physical printing, authentication, and CBMS integration remain outside V4.
 
 See `docs/MVP_SCOPE.md` for the scope boundary and `docs/ARCHITECTURE.md` for the initial design.
+
+## Detailed implementation history
+
+See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V4, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.

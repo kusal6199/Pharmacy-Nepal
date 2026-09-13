@@ -24,3 +24,10 @@
 - Optimize first for one independent retail pharmacy and one billing computer.
 - Do not introduce microservices, cloud synchronization, multi-branch behavior, or full accounting unless the current task explicitly requires it.
 - Prefer small vertical slices that include migration, domain rules, UI, and tests.
+
+## Implementation history
+
+- Update `docs/IMPLEMENTATION_HISTORY.md` in the same task as every project change, including minor code, schema, UI, test, configuration, build, and documentation changes.
+- Record files added, modified, moved, or removed; database effects; behavior and validation effects; tests run; verification results; decisions; and explicit scope exclusions.
+- Keep prior history entries intact. Append a new dated entry for later work; only edit an older entry to correct a factual error, and record that correction in the newest entry.
+- Never claim a migration, test, commit, or behavior that cannot be verified from the repository or command output. State historical uncertainty explicitly.

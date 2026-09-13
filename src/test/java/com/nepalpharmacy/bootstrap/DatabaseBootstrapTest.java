@@ -24,15 +24,21 @@ class DatabaseBootstrapTest {
 
         int migrationsExecuted = bootstrap.migrate();
 
-        assertEquals(2, migrationsExecuted);
+        assertEquals(4, migrationsExecuted);
         assertTrue(Files.exists(databaseFile));
 
         try (var connection = DriverManager.getConnection(bootstrap.jdbcUrl());
-             var statement = connection.prepareStatement(
-                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'product'")) {
+             var statement = connection.prepareStatement("""
+                     SELECT COUNT(*)
+                     FROM sqlite_master
+                     WHERE type = 'table'
+                       AND name IN ('product', 'supplier', 'product_batch', 'purchase',
+                                    'purchase_line', 'inventory_movement', 'customer',
+                                    'invoice_counter', 'sale', 'sale_line')
+                     """)) {
             try (var results = statement.executeQuery()) {
                 assertTrue(results.next());
-                assertEquals(1, results.getInt(1));
+                assertEquals(10, results.getInt(1));
             }
         }
 
@@ -86,7 +92,7 @@ class DatabaseBootstrapTest {
             batch.executeUpdate();
         }
 
-        assertEquals(1, bootstrap.migrate());
+        assertEquals(3, bootstrap.migrate());
 
         try (var connection = bootstrap.openConnection();
              var product = connection.prepareStatement("""

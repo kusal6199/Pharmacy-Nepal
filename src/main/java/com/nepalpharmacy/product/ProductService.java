@@ -45,6 +45,10 @@ public final class ProductService {
         return repository.findAll();
     }
 
+    public List<Product> searchActiveByName(String query) {
+        return repository.searchActiveByName(query == null ? "" : query.trim(), 30);
+    }
+
     private ProductDraft validateAndNormalize(ProductDraft input, UUID excludedProductId) {
         ProductDraft normalized = input == null ? null : input.normalized();
         ProductValidator.validate(normalized);
@@ -79,4 +83,3 @@ public final class ProductService {
         );
     }
 }
-

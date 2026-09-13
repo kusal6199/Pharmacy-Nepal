@@ -64,7 +64,11 @@
 
 .form-panel,
 .form-scroll,
-.form-scroll > .viewport {
+.form-scroll > .viewport,
+.purchase-scroll,
+.purchase-scroll > .viewport,
+.pos-scroll,
+.pos-scroll > .viewport {
     -fx-background-color: white;
 }
 
@@ -116,4 +120,15 @@
 .table-hint {
     -fx-font-size: 12px;
     -fx-text-fill: #60736f;
+}
+
+.purchase-total {
+    -fx-font-size: 18px;
+    -fx-font-weight: 700;
+    -fx-text-fill: #173b33;
+}
+
+.invoice-view {
+    -fx-font-family: "Monospaced";
+    -fx-font-size: 13px;
 }

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -44,6 +45,7 @@ class JdbcProductRepositoryTest {
                 " paracetamol 500MG ", "acme pharma", null));
         assertFalse(repository.existsActiveWithNameAndManufacturer(
                 product.name(), product.manufacturer(), id));
+        assertEquals(List.of(product), repository.searchActiveByName("CETAMOL", 30));
 
         Instant updatedAt = Instant.parse("2026-09-13T05:00:00Z");
         Product updated = product(id, "Paracetamol 650mg", "Acme Pharma", false, created, updatedAt);
@@ -52,6 +54,7 @@ class JdbcProductRepositoryTest {
         assertEquals(updated, repository.findById(id).orElseThrow());
         assertFalse(repository.existsActiveWithNameAndManufacturer(
                 updated.name(), updated.manufacturer(), null));
+        assertTrue(repository.searchActiveByName("paracetamol", 30).isEmpty());
     }
 
     private Product product(
@@ -81,4 +84,3 @@ class JdbcProductRepositoryTest {
         );
     }
 }
-

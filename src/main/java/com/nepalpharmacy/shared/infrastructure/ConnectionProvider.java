@@ -1,4 +1,4 @@
-package com.nepalpharmacy.product.infrastructure;
+package com.nepalpharmacy.shared.infrastructure;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -8,4 +8,3 @@ public interface ConnectionProvider {
 
     Connection open() throws SQLException;
 }
-
