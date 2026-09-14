@@ -9,11 +9,13 @@ public record PurchaseSummary(
         LocalDate purchaseDate,
         String supplierName,
         String supplierInvoice,
+        PurchasePaymentMethod paymentMethod,
         long totalAmountPaisa
 ) {
     public PurchaseSummary {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(purchaseDate, "purchaseDate");
         Objects.requireNonNull(supplierName, "supplierName");
+        Objects.requireNonNull(paymentMethod, "paymentMethod");
     }
 }

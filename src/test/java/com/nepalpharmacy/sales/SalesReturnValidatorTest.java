@@ -94,6 +94,26 @@ class SalesReturnValidatorTest {
         assertEquals(350, SalesReturnValidator.totalPaisa(draft));
     }
 
+    @Test
+    void creditRefundRequiresCustomerOnOriginalSale() {
+        UUID saleId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        SalesReturnDraft credit = new SalesReturnDraft(saleId, DATE,
+                SalesReturnReason.CUSTOMER_RETURN, PaymentMethod.CREDIT, null,
+                List.of(line(lineId, batchId, 1, 150)), null);
+        Sale walkIn = new Sale(saleId, null, DATE, 1, PaymentMethod.CASH, 150,
+                Instant.parse("2026-09-13T00:00:00Z"), null);
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> SalesReturnValidator.validate(credit, walkIn, Map.of(lineId,
+                        availability(lineId, saleId, batchId, 1, 0))));
+
+        assertEquals("Credit refund requires a customer account.",
+                exception.fieldErrors().get("refundMethod"));
+    }
+
     private static SalesReturnDraft draft(UUID saleId, SalesReturnLineDraft line) {
         return new SalesReturnDraft(saleId, DATE, SalesReturnReason.CUSTOMER_RETURN,
                 PaymentMethod.CASH, null, List.of(line), null);

@@ -9,6 +9,7 @@ public record PurchaseReturnDraft(
         UUID supplierId,
         LocalDate returnDate,
         PurchaseReturnReason reason,
+        PurchasePaymentMethod settlementMethod,
         String notes,
         List<PurchaseReturnLineDraft> lines,
         UUID createdBy
@@ -20,6 +21,7 @@ public record PurchaseReturnDraft(
                 supplierId,
                 returnDate,
                 reason,
+                settlementMethod,
                 notes == null || notes.isBlank() ? null : notes.trim(),
                 lines == null ? null : lines.stream().toList(),
                 createdBy);

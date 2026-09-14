@@ -1,5 +1,15 @@
 package com.nepalpharmacy.bootstrap;
 
+import com.nepalpharmacy.credit.CustomerAccountEntryRepository;
+import com.nepalpharmacy.credit.CustomerAccountRepository;
+import com.nepalpharmacy.credit.CustomerAccountService;
+import com.nepalpharmacy.credit.SupplierAccountEntryRepository;
+import com.nepalpharmacy.credit.SupplierAccountRepository;
+import com.nepalpharmacy.credit.SupplierAccountService;
+import com.nepalpharmacy.credit.infrastructure.JdbcCustomerAccountEntryRepository;
+import com.nepalpharmacy.credit.infrastructure.JdbcCustomerAccountRepository;
+import com.nepalpharmacy.credit.infrastructure.JdbcSupplierAccountEntryRepository;
+import com.nepalpharmacy.credit.infrastructure.JdbcSupplierAccountRepository;
 import com.nepalpharmacy.inventory.BatchRepository;
 import com.nepalpharmacy.inventory.InventoryAlertRepository;
 import com.nepalpharmacy.inventory.InventoryAlertService;
@@ -68,6 +78,8 @@ public final class ApplicationContext {
     private final SaleHistoryService saleHistoryService;
     private final PurchaseHistoryService purchaseHistoryService;
     private final InventoryAlertService inventoryAlertService;
+    private final CustomerAccountService customerAccountService;
+    private final SupplierAccountService supplierAccountService;
 
     public ApplicationContext(DatabaseBootstrap database) {
         Objects.requireNonNull(database, "database");
@@ -135,6 +147,14 @@ public final class ApplicationContext {
                         purchaseReturnRepository,
                         purchaseReturnLineRepository,
                         movementRepository);
+        CustomerAccountRepository customerAccountRepository =
+                new JdbcCustomerAccountRepository(connections);
+        CustomerAccountEntryRepository customerAccountEntryRepository =
+                new JdbcCustomerAccountEntryRepository();
+        SupplierAccountRepository supplierAccountRepository =
+                new JdbcSupplierAccountRepository(connections);
+        SupplierAccountEntryRepository supplierAccountEntryRepository =
+                new JdbcSupplierAccountEntryRepository();
 
         productService = new ProductService(productRepository);
         supplierService = new SupplierService(supplierRepository);
@@ -146,6 +166,12 @@ public final class ApplicationContext {
         saleHistoryService = new SaleHistoryService(saleHistoryRepository);
         purchaseHistoryService = new PurchaseHistoryService(purchaseHistoryRepository);
         inventoryAlertService = new InventoryAlertService(inventoryAlertRepository);
+        customerAccountService = new CustomerAccountService(
+                customerAccountRepository, customerAccountEntryRepository,
+                customerRepository, transactions);
+        supplierAccountService = new SupplierAccountService(
+                supplierAccountRepository, supplierAccountEntryRepository,
+                supplierRepository, transactions);
     }
 
     public ProductService productService() {
@@ -186,5 +212,13 @@ public final class ApplicationContext {
 
     public InventoryAlertService inventoryAlertService() {
         return inventoryAlertService;
+    }
+
+    public CustomerAccountService customerAccountService() {
+        return customerAccountService;
+    }
+
+    public SupplierAccountService supplierAccountService() {
+        return supplierAccountService;
     }
 }

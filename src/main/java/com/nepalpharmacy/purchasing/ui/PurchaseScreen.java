@@ -9,6 +9,7 @@ import com.nepalpharmacy.product.ProductService;
 import com.nepalpharmacy.purchasing.Purchase;
 import com.nepalpharmacy.purchasing.PurchaseDraft;
 import com.nepalpharmacy.purchasing.PurchaseLineDraft;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.PurchaseService;
 import com.nepalpharmacy.purchasing.PurchaseValidationException;
 import com.nepalpharmacy.purchasing.PurchaseValidator;
@@ -51,6 +52,7 @@ public final class PurchaseScreen {
     private final ComboBox<Supplier> supplier = new ComboBox<>();
     private final DatePicker purchaseDate = new DatePicker(LocalDate.now());
     private final TextField invoiceNumber = new TextField();
+    private final ComboBox<PurchasePaymentMethod> paymentMethod = new ComboBox<>();
     private final ComboBox<Product> product = new ComboBox<>();
     private final TextField batchNumber = new TextField();
     private final DatePicker expiryDate = new DatePicker();
@@ -116,14 +118,20 @@ public final class PurchaseScreen {
         supplier.setPromptText("Select supplier");
         supplier.setMaxWidth(Double.MAX_VALUE);
         invoiceNumber.setPromptText("Optional");
+        paymentMethod.setItems(FXCollections.observableArrayList(
+                PurchasePaymentMethod.selectableValues()));
+        paymentMethod.setPromptText("Select settlement method");
+        paymentMethod.setMaxWidth(Double.MAX_VALUE);
 
         GridPane fields = new GridPane();
         fields.setHgap(12);
         fields.setVgap(10);
         fields.addRow(0, label("Supplier *"), supplier, label("Purchase date *"), purchaseDate);
-        fields.addRow(1, label("Invoice number"), invoiceNumber);
+        fields.addRow(1, label("Invoice number"), invoiceNumber,
+                label("Payment method *"), paymentMethod);
         GridPane.setHgrow(supplier, Priority.ALWAYS);
         GridPane.setHgrow(invoiceNumber, Priority.ALWAYS);
+        GridPane.setHgrow(paymentMethod, Priority.ALWAYS);
 
         VBox panel = panel("Purchase details", fields);
         panel.getChildren().add(feedback);
@@ -241,6 +249,8 @@ public final class PurchaseScreen {
         recentTable.getColumns().add(recentColumn(
                 "Invoice", purchase -> optional(purchase.invoiceNumber()), 140));
         recentTable.getColumns().add(recentColumn(
+                "Payment", purchase -> purchase.paymentMethod().displayName(), 130));
+        recentTable.getColumns().add(recentColumn(
                 "Total NPR", purchase -> formatPaisa(purchase.totalAmountPaisa()), 120));
         return panel("Recent purchases", recentTable);
     }
@@ -281,7 +291,8 @@ public final class PurchaseScreen {
                     parsePaisa(unitPrice.getText(), "Unit purchase price"))
                     .normalized();
             PurchaseDraft singleLine = new PurchaseDraft(
-                    new UUID(0, 0), purchaseDate.getValue(), null, List.of(draft), null);
+                    new UUID(0, 0), purchaseDate.getValue(), null,
+                    PurchasePaymentMethod.CASH, List.of(draft), null);
             PurchaseValidator.validate(singleLine);
 
             draftLines.add(new DraftLine(selectedProduct, draft));
@@ -302,11 +313,13 @@ public final class PurchaseScreen {
                     supplier.getValue() == null ? null : supplier.getValue().id(),
                     purchaseDate.getValue(),
                     invoiceNumber.getText(),
+                    paymentMethod.getValue(),
                     draftLines.stream().map(DraftLine::draft).toList(),
                     null));
             String supplierName = supplier.getValue().name();
             invoiceNumber.clear();
             purchaseDate.setValue(LocalDate.now());
+            paymentMethod.setValue(null);
             draftLines.clear();
             updateTotal();
             refreshRecentPurchases();

@@ -16,6 +16,7 @@ com.nepalpharmacy
 ├── purchasing      purchase entry and purchase returns
 ├── sales           POS, invoices, payments, and sales returns
 ├── party           suppliers and customers
+├── credit          derived customer receivables and supplier payables
 ├── compliance      prescriptions, pharmacy configuration, and audit
 ├── reporting       operational queries and exports
 └── shared          IDs, money, time, and common validation
@@ -46,7 +47,7 @@ The `batch_stock` view and FEFO repository query calculate stock from movements 
 
 `bootstrap.ApplicationContext` is the single production composition point. It constructs JDBC adapters and services once and exposes services to the JavaFX shell. Screens depend only on services, services depend only on narrow repository interfaces, and transaction coordinators depend on repository interfaces plus the shared `TransactionRunner` abstraction. JDBC connections remain inside infrastructure implementations.
 
-The dependency direction for sales is `sales` toward `product`, `inventory`, and `party`; those packages do not depend on `sales`.
+The dependency direction for sales is `sales` toward `product`, `inventory`, and `party`; those packages do not depend on `sales`. The higher-level `credit` capability reads immutable transaction events from sales/purchasing plus party masters; none of those lower-level packages depends back on `credit`.
 
 ## Sale transaction
 
@@ -89,3 +90,17 @@ Expiry buckets use exact day arithmetic: before the operational date is expired,
 The dependency path remains `JavaFX -> InventoryAlertService -> InventoryAlertRepository -> JDBC -> SQLite`. `ApplicationContext` is still the only production composition point, the screen contains no SQL or stock classification rules, and the repository is read-only. Refresh always reruns the aggregate queries against persisted product data and the movement-derived view, so purchase receipts, sales, sales returns, purchase returns, and threshold edits require no V7 bookkeeping. Expiry alerts do not modify inventory.
 
 No V7 schema migration is required. Existing batch/product and inventory-movement indexes support the joins and bounded ordering, while substring search cannot benefit from a normal B-tree index. Application phase V7 therefore leaves Flyway at schema version V5 and leaves `DatabaseBootstrap.verifyInventoryMovementReferences()` unchanged.
+
+## Customer and supplier credit subledgers
+
+Application phase V8 adds a `credit` capability while keeping the system a modular monolith. Its dependency path is `CreditAccountsScreen -> CustomerAccountService/SupplierAccountService -> narrow account and account-entry repository interfaces -> JDBC -> SQLite`. `ApplicationContext` remains the sole production composition root. JavaFX performs formatting, filter capture, and feedback only; balance queries and validation remain below the UI.
+
+Balances are derived, never stored. Customer balance is opening balance plus `CREDIT` sales, less customer-linked `CREDIT` sales returns and payments received. Supplier balance is opening balance plus `CREDIT` purchases, less `CREDIT` purchase returns and payments made. The transaction headers themselves are ledger events; only genuine manual opening/payment events are inserted into `customer_account_entry` or `supplier_account_entry`. Negative balances remain meaningful party credit and are never clamped.
+
+Ledger detail uses deterministic chronological ordering by business date, creation timestamp, event type, and source ID. Java-side running totals and payment-time current totals use `Math.addExact`; persisted amounts and SQL aggregation use SQLite `INTEGER` paisa. Account lists follow the bounded N+1 convention: repositories request at most 151 rows, services expose 150 plus a truncation flag. Inactive parties remain eligible for list/search/detail projections.
+
+V6 rebuilds `purchase` and `purchase_return` so `payment_method` and `settlement_method` are required, checked, and have no database default. Existing rows are copied as `LEGACY_UNSPECIFIED`; new application writes must explicitly choose Cash, QR/digital, or Credit/Udharo. A rebuild was chosen over `ALTER TABLE ... DEFAULT` so a future omitted field fails loudly instead of silently producing fake legacy data. The new classification is inserted within the established atomic purchase/return transactions.
+
+Manual openings and payments use the shared `TransactionRunner`: party existence, current derived balance, opening uniqueness, validation, and insert occur in one transaction. Only Cash or QR may settle a balance, and a manual payment cannot exceed a positive outstanding amount. Account-entry repositories offer insertion only; there is no update/delete path. A new Credit sales return is rejected when its original sale has no customer, while historical customerless Credit refunds are excluded from the ledger join without mutation.
+
+This is a party subledger only. It does not introduce a chart of accounts, double-entry journals, cash book, P&L, balance sheet, tax accounting, due dates, aging, interest, credit limits, or any inventory movement/view/type change. Application phase V8 advances Flyway from schema V5 to schema V6 through `V6__create_credit_udharo_ledger.sql`.

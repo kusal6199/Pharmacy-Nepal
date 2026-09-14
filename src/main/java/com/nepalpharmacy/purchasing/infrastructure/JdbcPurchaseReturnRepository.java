@@ -57,8 +57,8 @@ public final class JdbcPurchaseReturnRepository implements PurchaseReturnReposit
         String sql = """
                 INSERT INTO purchase_return (
                     id, return_number, original_purchase_id, supplier_id, return_date,
-                    reason, notes, total_amount_paisa, created_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reason, settlement_method, notes, total_amount_paisa, created_at, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
             statement.setString(1, purchaseReturn.id().toString());
@@ -67,10 +67,11 @@ public final class JdbcPurchaseReturnRepository implements PurchaseReturnReposit
             statement.setString(4, purchaseReturn.supplierId().toString());
             statement.setString(5, purchaseReturn.returnDate().toString());
             statement.setString(6, purchaseReturn.reason().name());
-            setNullableString(statement, 7, purchaseReturn.notes());
-            statement.setLong(8, purchaseReturn.totalAmountPaisa());
-            statement.setString(9, purchaseReturn.createdAt().toString());
-            setNullableString(statement, 10,
+            statement.setString(7, purchaseReturn.settlementMethod().name());
+            setNullableString(statement, 8, purchaseReturn.notes());
+            statement.setLong(9, purchaseReturn.totalAmountPaisa());
+            statement.setString(10, purchaseReturn.createdAt().toString());
+            setNullableString(statement, 11,
                     purchaseReturn.createdBy() == null ? null : purchaseReturn.createdBy().toString());
             statement.executeUpdate();
         } catch (SQLException exception) {

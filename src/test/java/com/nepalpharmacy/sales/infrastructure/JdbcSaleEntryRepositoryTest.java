@@ -257,6 +257,7 @@ class JdbcSaleEntryRepositoryTest {
                 supplier.id(),
                 purchaseDate,
                 "PURCHASE-" + batch,
+                com.nepalpharmacy.purchasing.PurchasePaymentMethod.CASH,
                 List.of(new PurchaseLineDraft(
                         product.id(), batch, expiry, null, quantity, 100)),
                 null));

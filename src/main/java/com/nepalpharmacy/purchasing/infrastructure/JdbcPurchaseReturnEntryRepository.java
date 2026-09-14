@@ -142,14 +142,16 @@ public final class JdbcPurchaseReturnEntryRepository implements PurchaseReturnEn
                 .toList();
         PurchaseReturnDraft pricedDraft = new PurchaseReturnDraft(
                 draft.originalPurchaseId(), draft.supplierId(), draft.returnDate(),
-                draft.reason(), draft.notes(), pricedLines, draft.createdBy());
+                draft.reason(), draft.settlementMethod(), draft.notes(), pricedLines,
+                draft.createdBy());
         PurchaseReturnValidator.validate(pricedDraft, originalPurchase, availability);
 
         long returnNumber = returns.nextReturnNumber(transaction);
         UUID returnId = UUID.randomUUID();
         PurchaseReturn purchaseReturn = new PurchaseReturn(
                 returnId, returnNumber, originalPurchase.id(), originalPurchase.supplierId(),
-                pricedDraft.returnDate(), pricedDraft.reason(), pricedDraft.notes(),
+                pricedDraft.returnDate(), pricedDraft.reason(), pricedDraft.settlementMethod(),
+                pricedDraft.notes(),
                 PurchaseReturnValidator.totalPaisa(pricedDraft), createdAt,
                 pricedDraft.createdBy());
         returns.insert(transaction, purchaseReturn);

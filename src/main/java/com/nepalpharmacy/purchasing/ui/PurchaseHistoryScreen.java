@@ -134,6 +134,8 @@ public final class PurchaseHistoryScreen {
         purchaseTable.getColumns().add(summaryColumn("Supplier invoice",
                 purchase -> purchase.supplierInvoice() == null
                         ? "—" : purchase.supplierInvoice(), 150));
+        purchaseTable.getColumns().add(summaryColumn("Payment",
+                purchase -> purchase.paymentMethod().displayName(), 120));
         purchaseTable.getColumns().add(summaryColumn("Total NPR",
                 purchase -> formatPaisa(purchase.totalAmountPaisa()), 100));
         purchaseTable.getSelectionModel().selectedItemProperty().addListener(
@@ -219,7 +221,8 @@ public final class PurchaseHistoryScreen {
             String invoiceText = summary.supplierInvoice() == null
                     ? "no supplier invoice" : "invoice " + summary.supplierInvoice();
             detailSummary.setText(summary.purchaseDate() + " • " + summary.supplierName()
-                    + " • " + invoiceText + " • total NPR "
+                    + " • " + invoiceText + " • " + summary.paymentMethod().displayName()
+                    + " • total NPR "
                     + formatPaisa(summary.totalAmountPaisa()));
             boolean returnable = selectedDetail.hasReturnableQuantity();
             createReturn.setDisable(!returnable);

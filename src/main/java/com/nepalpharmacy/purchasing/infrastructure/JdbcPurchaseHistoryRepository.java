@@ -3,6 +3,7 @@ package com.nepalpharmacy.purchasing.infrastructure;
 import com.nepalpharmacy.purchasing.PurchaseDetail;
 import com.nepalpharmacy.purchasing.PurchaseDetailLine;
 import com.nepalpharmacy.purchasing.PurchaseHistoryRepository;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.PurchaseSearchCriteria;
 import com.nepalpharmacy.purchasing.PurchaseSummary;
 import com.nepalpharmacy.shared.infrastructure.ConnectionProvider;
@@ -38,7 +39,7 @@ public final class JdbcPurchaseHistoryRepository implements PurchaseHistoryRepos
     public List<PurchaseSummary> search(PurchaseSearchCriteria criteria, int limit) {
         StringBuilder sql = new StringBuilder("""
                 SELECT p.id, p.purchase_date, s.name AS supplier_name,
-                       p.invoice_number, p.total_amount_paisa
+                       p.invoice_number, p.payment_method, p.total_amount_paisa
                 FROM purchase p
                 JOIN supplier s ON s.id = p.supplier_id
                 WHERE 1 = 1
@@ -99,7 +100,7 @@ public final class JdbcPurchaseHistoryRepository implements PurchaseHistoryRepos
             throws SQLException {
         String sql = """
                 SELECT p.id, p.purchase_date, s.name AS supplier_name,
-                       p.invoice_number, p.total_amount_paisa
+                       p.invoice_number, p.payment_method, p.total_amount_paisa
                 FROM purchase p
                 JOIN supplier s ON s.id = p.supplier_id
                 WHERE p.id = ?
@@ -159,6 +160,7 @@ public final class JdbcPurchaseHistoryRepository implements PurchaseHistoryRepos
                 LocalDate.parse(results.getString("purchase_date")),
                 results.getString("supplier_name"),
                 results.getString("invoice_number"),
+                PurchasePaymentMethod.valueOf(results.getString("payment_method")),
                 results.getLong("total_amount_paisa"));
     }
 

@@ -130,7 +130,7 @@ public final class JdbcSalesReturnEntryRepository implements SalesReturnEntryRep
         SalesReturnDraft pricedDraft = new SalesReturnDraft(
                 draft.originalSaleId(), draft.returnDate(), draft.reason(),
                 draft.refundMethod(), draft.notes(), pricedLines, draft.createdBy());
-        SalesReturnValidator.validate(pricedDraft, availability);
+        SalesReturnValidator.validate(pricedDraft, originalSale, availability);
 
         long returnNumber = returns.nextReturnNumber(transaction);
         UUID returnId = UUID.randomUUID();

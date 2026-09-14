@@ -12,6 +12,7 @@ public record PurchaseReturn(
         UUID supplierId,
         LocalDate returnDate,
         PurchaseReturnReason reason,
+        PurchasePaymentMethod settlementMethod,
         String notes,
         long totalAmountPaisa,
         Instant createdAt,
@@ -24,6 +25,7 @@ public record PurchaseReturn(
         Objects.requireNonNull(supplierId, "supplierId");
         Objects.requireNonNull(returnDate, "returnDate");
         Objects.requireNonNull(reason, "reason");
+        Objects.requireNonNull(settlementMethod, "settlementMethod");
         Objects.requireNonNull(createdAt, "createdAt");
         if (returnNumber <= 0) {
             throw new IllegalArgumentException("Purchase return number must be positive.");

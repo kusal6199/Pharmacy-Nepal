@@ -2,6 +2,7 @@ package com.nepalpharmacy.purchasing.infrastructure;
 
 import com.nepalpharmacy.purchasing.Purchase;
 import com.nepalpharmacy.purchasing.PurchaseRepository;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.RecentPurchase;
 import com.nepalpharmacy.shared.infrastructure.ConnectionProvider;
 import com.nepalpharmacy.shared.infrastructure.DataAccessException;
@@ -31,17 +32,18 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
         String sql = """
                 INSERT INTO purchase (
                     id, supplier_id, purchase_date, invoice_number,
-                    total_amount_paisa, created_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    payment_method, total_amount_paisa, created_at, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
             statement.setString(1, purchase.id().toString());
             statement.setString(2, purchase.supplierId().toString());
             statement.setString(3, purchase.purchaseDate().toString());
             setNullableString(statement, 4, purchase.invoiceNumber());
-            statement.setLong(5, purchase.totalAmountPaisa());
-            statement.setString(6, purchase.createdAt().toString());
-            setNullableString(statement, 7,
+            statement.setString(5, purchase.paymentMethod().name());
+            statement.setLong(6, purchase.totalAmountPaisa());
+            statement.setString(7, purchase.createdAt().toString());
+            setNullableString(statement, 8,
                     purchase.createdBy() == null ? null : purchase.createdBy().toString());
             statement.executeUpdate();
         } catch (SQLException exception) {
@@ -66,7 +68,7 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
     private Optional<Purchase> findById(Connection connection, UUID id) {
         String sql = """
                 SELECT id, supplier_id, purchase_date, invoice_number,
-                       total_amount_paisa, created_at, created_by
+                       payment_method, total_amount_paisa, created_at, created_by
                 FROM purchase WHERE id = ?
                 """;
         try (var statement = connection.prepareStatement(sql)) {
@@ -83,7 +85,7 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
     public List<RecentPurchase> findRecent(int limit) {
         String sql = """
                 SELECT p.id, p.purchase_date, s.name AS supplier_name,
-                       p.invoice_number, p.total_amount_paisa
+                       p.invoice_number, p.payment_method, p.total_amount_paisa
                 FROM purchase p
                 JOIN supplier s ON s.id = p.supplier_id
                 ORDER BY p.purchase_date DESC, p.created_at DESC
@@ -100,6 +102,7 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
                             LocalDate.parse(results.getString("purchase_date")),
                             results.getString("supplier_name"),
                             results.getString("invoice_number"),
+                            PurchasePaymentMethod.valueOf(results.getString("payment_method")),
                             results.getLong("total_amount_paisa")));
                 }
             }
@@ -137,6 +140,7 @@ public final class JdbcPurchaseRepository implements PurchaseRepository {
                 UUID.fromString(results.getString("supplier_id")),
                 LocalDate.parse(results.getString("purchase_date")),
                 results.getString("invoice_number"),
+                PurchasePaymentMethod.valueOf(results.getString("payment_method")),
                 results.getLong("total_amount_paisa"),
                 java.time.Instant.parse(results.getString("created_at")),
                 createdBy == null ? null : UUID.fromString(createdBy));

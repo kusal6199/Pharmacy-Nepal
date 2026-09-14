@@ -63,7 +63,8 @@ class PurchaseHistoryServiceTest {
     private static List<PurchaseSummary> summaries(int count) {
         return IntStream.range(0, count)
                 .mapToObj(index -> new PurchaseSummary(UUID.randomUUID(),
-                        LocalDate.of(2026, 9, 13), "Supplier", "INV-" + index, 100))
+                        LocalDate.of(2026, 9, 13), "Supplier", "INV-" + index,
+                        PurchasePaymentMethod.CASH, 100))
                 .toList();
     }
 

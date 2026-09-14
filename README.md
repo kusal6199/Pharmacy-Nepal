@@ -11,7 +11,7 @@ Local-first pharmacy management application scaffolded for supervised, increment
 - Flyway schema migrations
 - JUnit 5 tests
 
-The executable opens a dashboard, product master, purchase-entry screen, point of sale, inventory-alert dashboard, sales and purchase history screens, and both return screens. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided cash, QR, or customer-linked credit sales, find persisted historical documents after navigating away or restarting, record batch-aware returns against original transaction lines, and review current expiry and replenishment risks.
+The executable opens a dashboard, product master, purchase-entry screen, point of sale, inventory-alert dashboard, sales and purchase history screens, both return screens, and one combined Udharo/Credit Accounts screen. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided transactions, find persisted documents after navigation or restart, record batch-aware returns, review expiry/replenishment risks, and settle derived customer receivables or supplier payables.
 
 ## Prerequisites
 
@@ -101,6 +101,7 @@ The purchase slice adds:
 6. Matching-batch reuse and FEFO-ordered available-stock queries
 7. One SQLite transaction for the header, lines, batches, and movements
 8. A recent-purchases reference table in JavaFX
+9. Required Cash, QR/digital, or Credit/Udharo classification for every new purchase
 
 ### Point of sale
 
@@ -159,10 +160,25 @@ The application-phase V7 dashboard adds:
 
 Low-stock calculations use sellable non-expired stock, not total physical stock. Expiry alerts do not modify inventory. Application phase V7 adds no database migration, so the Flyway schema remains V5.
 
-Udharo ledger/accounting, stock adjustments/write-offs, automatic purchase orders, reports and analytics, RBAC/audit, Nepal invoice/PAN/VAT formatting, printing, barcode workflows, scheduled notifications, cloud sync, multi-branch support, and CBMS integration remain outside V7.
+### Customer and supplier Udharo / Credit accounts
+
+Application phase V8 adds:
+
+1. Customer receivables derived from opening balances, credit sales, credit-refund returns, and payments received
+2. Supplier payables derived from opening balances, explicitly classified credit purchases/returns, and payments made
+3. No writable or cached balance column: every current and running balance comes from immutable ordered events
+4. Cash/QR-only manual settlements, single positive opening balances, and overpayment protection
+5. Honest `LEGACY_UNSPECIFIED` classification for purchases and purchase returns created before V8
+6. One searchable, bounded JavaFX screen with customer and supplier tabs, balance filters, account detail, running history, and immutable entry forms
+7. Human-readable owed/settled/party-credit labels instead of unexplained signed amounts
+8. Required settlement method selectors on new purchases and purchase returns, plus purchase-history display of the saved classification
+
+V8 adds Flyway migration `V6__create_credit_udharo_ledger.sql`; application phase V8 therefore runs on database schema V6. This remains a party subledger, not general-ledger accounting.
+
+Stock adjustments/write-offs, automatic purchase orders, reports and analytics, due dates/aging/interest, credit limits, split payments, RBAC/audit, Nepal invoice/PAN/VAT formatting, printing, barcode workflows, scheduled notifications, cloud sync, multi-branch support, and CBMS integration remain outside V8.
 
 See `docs/MVP_SCOPE.md` for the scope boundary and `docs/ARCHITECTURE.md` for the initial design.
 
 ## Detailed implementation history
 
-See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V7, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.
+See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V8, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.

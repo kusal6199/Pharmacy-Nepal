@@ -8,6 +8,7 @@ public record PurchaseDraft(
         UUID supplierId,
         LocalDate purchaseDate,
         String invoiceNumber,
+        PurchasePaymentMethod paymentMethod,
         List<PurchaseLineDraft> lines,
         UUID createdBy
 ) {
@@ -19,6 +20,7 @@ public record PurchaseDraft(
         String normalizedInvoice = invoiceNumber == null || invoiceNumber.isBlank()
                 ? null
                 : invoiceNumber.trim();
-        return new PurchaseDraft(supplierId, purchaseDate, normalizedInvoice, normalizedLines, createdBy);
+        return new PurchaseDraft(
+                supplierId, purchaseDate, normalizedInvoice, paymentMethod, normalizedLines, createdBy);
     }
 }

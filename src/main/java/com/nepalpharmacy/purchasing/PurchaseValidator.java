@@ -20,6 +20,11 @@ public final class PurchaseValidator {
         if (draft.purchaseDate() == null) {
             errors.put("purchaseDate", "Purchase date is required.");
         }
+        if (draft.paymentMethod() == null) {
+            errors.put("paymentMethod", "Payment method is required.");
+        } else if (draft.paymentMethod() == PurchasePaymentMethod.LEGACY_UNSPECIFIED) {
+            errors.put("paymentMethod", "Select Cash, QR / digital, or Credit / udharo.");
+        }
         if (draft.invoiceNumber() != null && draft.invoiceNumber().trim().length() > 80) {
             errors.put("invoiceNumber", "Invoice number must be at most 80 characters.");
         }

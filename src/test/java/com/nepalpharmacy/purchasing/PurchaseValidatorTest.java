@@ -49,8 +49,26 @@ class PurchaseValidatorTest {
                 exception.fieldErrors().get("line1.price"));
     }
 
+    @Test
+    void requiresExplicitNonLegacyPaymentMethod() {
+        PurchaseDraft valid = draft(List.of(line(PURCHASE_DATE.plusMonths(6))));
+        PurchaseDraft missing = new PurchaseDraft(valid.supplierId(), valid.purchaseDate(),
+                valid.invoiceNumber(), null, valid.lines(), null);
+        PurchaseDraft legacy = new PurchaseDraft(valid.supplierId(), valid.purchaseDate(),
+                valid.invoiceNumber(), PurchasePaymentMethod.LEGACY_UNSPECIFIED,
+                valid.lines(), null);
+
+        assertEquals("Payment method is required.", assertThrows(
+                PurchaseValidationException.class,
+                () -> PurchaseValidator.validate(missing)).fieldErrors().get("paymentMethod"));
+        assertEquals("Select Cash, QR / digital, or Credit / udharo.", assertThrows(
+                PurchaseValidationException.class,
+                () -> PurchaseValidator.validate(legacy)).fieldErrors().get("paymentMethod"));
+    }
+
     private static PurchaseDraft draft(List<PurchaseLineDraft> lines) {
-        return new PurchaseDraft(UUID.randomUUID(), PURCHASE_DATE, "INV-1", lines, null);
+        return new PurchaseDraft(UUID.randomUUID(), PURCHASE_DATE, "INV-1",
+                PurchasePaymentMethod.CASH, lines, null);
     }
 
     private static PurchaseLineDraft line(LocalDate expiryDate) {

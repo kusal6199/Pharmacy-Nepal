@@ -2,6 +2,9 @@ package com.nepalpharmacy;
 
 import com.nepalpharmacy.bootstrap.ApplicationContext;
 import com.nepalpharmacy.bootstrap.DatabaseBootstrap;
+import com.nepalpharmacy.credit.CustomerAccountService;
+import com.nepalpharmacy.credit.SupplierAccountService;
+import com.nepalpharmacy.credit.ui.CreditAccountsScreen;
 import com.nepalpharmacy.inventory.InventoryAlertService;
 import com.nepalpharmacy.inventory.ui.InventoryAlertScreen;
 import com.nepalpharmacy.party.CustomerService;
@@ -46,6 +49,8 @@ public final class PharmacyApplication extends Application {
     private SaleHistoryService saleHistoryService;
     private PurchaseHistoryService purchaseHistoryService;
     private InventoryAlertService inventoryAlertService;
+    private CustomerAccountService customerAccountService;
+    private SupplierAccountService supplierAccountService;
     private int migrationsExecuted;
 
     @Override
@@ -63,6 +68,8 @@ public final class PharmacyApplication extends Application {
         saleHistoryService = context.saleHistoryService();
         purchaseHistoryService = context.purchaseHistoryService();
         inventoryAlertService = context.inventoryAlertService();
+        customerAccountService = context.customerAccountService();
+        supplierAccountService = context.supplierAccountService();
 
         shell.setTop(createHeader());
         shell.setLeft(createNavigation());
@@ -112,9 +119,12 @@ public final class PharmacyApplication extends Application {
         purchaseHistory.setOnAction(event -> showPurchaseHistory());
         Button inventoryAlerts = navigationButton("Inventory alerts");
         inventoryAlerts.setOnAction(event -> showInventoryAlerts());
+        Button creditAccounts = navigationButton("Udharo / Credit");
+        creditAccounts.setOnAction(event -> showCreditAccounts());
 
         VBox navigation = new VBox(8, dashboard, products, purchases, pos,
-                inventoryAlerts, salesHistory, purchaseHistory, salesReturns, purchaseReturns);
+                inventoryAlerts, creditAccounts, salesHistory, purchaseHistory,
+                salesReturns, purchaseReturns);
         navigation.getStyleClass().add("navigation");
         navigation.setPadding(new Insets(12));
         navigation.setPrefWidth(175);
@@ -169,8 +179,12 @@ public final class PharmacyApplication extends Application {
         Button openInventoryAlerts = new Button("Review inventory alerts");
         openInventoryAlerts.getStyleClass().add("primary-button");
         openInventoryAlerts.setOnAction(event -> showInventoryAlerts());
+        Button openCreditAccounts = new Button("Review Udharo / Credit");
+        openCreditAccounts.getStyleClass().add("primary-button");
+        openCreditAccounts.setOnAction(event -> showCreditAccounts());
 
-        FlowPane actions = new FlowPane(10, 10, openInventoryAlerts, openProducts, openPurchases, openPos,
+        FlowPane actions = new FlowPane(10, 10, openInventoryAlerts, openCreditAccounts,
+                openProducts, openPurchases, openPos,
                 openSalesHistory, openPurchaseHistory, openSalesReturns, openPurchaseReturns);
         VBox content = new VBox(20, cards, guidance, actions);
         content.setPadding(new Insets(8, 28, 28, 28));
@@ -216,6 +230,11 @@ public final class PharmacyApplication extends Application {
 
     private void showInventoryAlerts() {
         shell.setCenter(new InventoryAlertScreen(inventoryAlertService).view());
+    }
+
+    private void showCreditAccounts() {
+        shell.setCenter(new CreditAccountsScreen(
+                customerAccountService, supplierAccountService).view());
     }
 
     private VBox statusCard(String label, String value) {

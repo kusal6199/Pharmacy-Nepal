@@ -8,6 +8,7 @@ public record RecentPurchase(
         LocalDate purchaseDate,
         String supplierName,
         String invoiceNumber,
+        PurchasePaymentMethod paymentMethod,
         long totalAmountPaisa
 ) {
 }

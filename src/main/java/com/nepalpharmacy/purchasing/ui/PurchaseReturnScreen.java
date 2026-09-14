@@ -1,6 +1,7 @@
 package com.nepalpharmacy.purchasing.ui;
 
 import com.nepalpharmacy.purchasing.PurchaseReturn;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.PurchaseReturnDraft;
 import com.nepalpharmacy.purchasing.PurchaseReturnLineDraft;
 import com.nepalpharmacy.purchasing.PurchaseReturnReason;
@@ -49,6 +50,7 @@ public final class PurchaseReturnScreen {
     private final TableView<ReturnRow> draftTable = new TableView<>(draftLines);
     private final DatePicker returnDate = new DatePicker(LocalDate.now());
     private final ComboBox<PurchaseReturnReason> reason = new ComboBox<>();
+    private final ComboBox<PurchasePaymentMethod> settlementMethod = new ComboBox<>();
     private final TextArea notes = new TextArea();
     private final Label total = new Label("Return total: NPR 0.00");
     private final Label feedback = new Label();
@@ -87,6 +89,9 @@ public final class PurchaseReturnScreen {
         configureDraftTable();
         reason.setItems(FXCollections.observableArrayList(PurchaseReturnReason.values()));
         reason.setValue(PurchaseReturnReason.DAMAGED);
+        settlementMethod.setItems(FXCollections.observableArrayList(
+                PurchasePaymentMethod.selectableValues()));
+        settlementMethod.setPromptText("Select settlement method");
         notes.setPromptText("Optional, up to 500 characters");
         notes.setPrefRowCount(2);
         feedback.getStyleClass().add("feedback");
@@ -191,8 +196,10 @@ public final class PurchaseReturnScreen {
         grid.setHgap(10);
         grid.setVgap(10);
         grid.addRow(0, label("Return date *"), returnDate, label("Reason *"), reason);
-        grid.addRow(1, label("Notes"), notes);
+        grid.addRow(1, label("Settlement method *"), settlementMethod);
+        grid.addRow(2, label("Notes"), notes);
         GridPane.setHgrow(reason, Priority.ALWAYS);
+        GridPane.setHgrow(settlementMethod, Priority.ALWAYS);
         GridPane.setHgrow(notes, Priority.ALWAYS);
         return panel("Return details", grid);
     }
@@ -283,13 +290,14 @@ public final class PurchaseReturnScreen {
         try {
             PurchaseReturn completed = returns.record(new PurchaseReturnDraft(
                     source.purchase().id(), source.purchase().supplierId(), returnDate.getValue(),
-                    reason.getValue(), notes.getText(),
+                    reason.getValue(), settlementMethod.getValue(), notes.getText(),
                     draftLines.stream().map(ReturnRow::draft).toList(), null));
             feedback.setText("Purchase return #" + completed.returnNumber()
                     + " completed for " + source.supplierName() + ". Value NPR "
                     + formatPaisa(completed.totalAmountPaisa()) + ". Batch stock was reduced.");
             draftLines.clear();
             notes.clear();
+            settlementMethod.setValue(null);
             updateTotal();
             returns.findSource(source.purchase().id()).ifPresent(updated -> {
                 source = updated;

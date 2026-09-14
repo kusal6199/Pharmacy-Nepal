@@ -2,6 +2,7 @@ package com.nepalpharmacy.purchasing.infrastructure;
 
 import com.nepalpharmacy.bootstrap.DatabaseBootstrap;
 import com.nepalpharmacy.purchasing.PurchaseDetail;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.PurchaseSearchCriteria;
 import com.nepalpharmacy.purchasing.PurchaseSummary;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +71,7 @@ class JdbcPurchaseHistoryRepositoryTest {
         assertEquals(List.of(later, earlier),
                 inclusive.stream().map(PurchaseSummary::id).toList());
         assertEquals(null, inclusive.get(0).supplierInvoice());
+        assertEquals(PurchasePaymentMethod.CASH, inclusive.get(0).paymentMethod());
 
         List<PurchaseSummary> inactiveResult = history.search(new PurchaseSearchCriteria(
                 null, null, "MEDICAL SUP", null), 100);
@@ -106,6 +108,7 @@ class JdbcPurchaseHistoryRepositoryTest {
         assertEquals(2, detail.lines().get(0).currentBatchStockBaseUnits());
         assertEquals(2, detail.lines().get(0).currentlyReturnableBaseUnits());
         assertTrue(detail.hasReturnableQuantity());
+        assertEquals(PurchasePaymentMethod.CASH, detail.summary().paymentMethod());
 
         assertEquals(purchaseId, new JdbcPurchaseRepository(database::openConnection)
                 .findById(purchaseId).orElseThrow().id());
@@ -133,6 +136,19 @@ class JdbcPurchaseHistoryRepositoryTest {
         assertEquals(List.of(oldPurchase), found.stream().map(PurchaseSummary::id).toList());
         assertFalse(history.search(emptyCriteria(), 25).stream()
                 .anyMatch(summary -> summary.id().equals(oldPurchase)));
+    }
+
+    @Test
+    void historyMapsLegacyUnspecifiedPaymentHonestly() throws SQLException {
+        UUID purchaseId = insertPurchase(LocalDate.of(2026, 9, 12), KATHMANDU_ID,
+                "LEGACY-1", "2026-09-12T08:00:00Z", 1, 100, false);
+        execute("UPDATE purchase SET payment_method = 'LEGACY_UNSPECIFIED' WHERE id = ?",
+                purchaseId);
+
+        PurchaseSummary summary = history.findDetail(purchaseId).orElseThrow().summary();
+
+        assertEquals(PurchasePaymentMethod.LEGACY_UNSPECIFIED, summary.paymentMethod());
+        assertEquals("Legacy / unspecified", summary.paymentMethod().displayName());
     }
 
     private void seedFoundation() throws SQLException {
@@ -180,8 +196,8 @@ class JdbcPurchaseHistoryRepositoryTest {
         execute("""
                 INSERT INTO purchase (
                     id, supplier_id, purchase_date, invoice_number,
-                    total_amount_paisa, created_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                    payment_method, total_amount_paisa, created_at, created_by
+                ) VALUES (?, ?, ?, ?, 'CASH', ?, ?, NULL)
                 """, purchaseId, supplierId, date, invoice, quantity * unitCost, createdAt);
         execute("""
                 INSERT INTO purchase_line (
@@ -221,8 +237,8 @@ class JdbcPurchaseHistoryRepositoryTest {
         execute("""
                 INSERT INTO purchase_return (
                     id, return_number, original_purchase_id, supplier_id, return_date,
-                    reason, notes, total_amount_paisa, created_at, created_by
-                ) VALUES (?, 1, ?, ?, '2026-09-13', 'DAMAGED', NULL, ?,
+                    reason, settlement_method, notes, total_amount_paisa, created_at, created_by
+                ) VALUES (?, 1, ?, ?, '2026-09-13', 'DAMAGED', 'CASH', NULL, ?,
                           '2026-09-13T00:00:00Z', NULL)
                 """, returnId, purchaseId, KATHMANDU_ID, quantity * 125);
         execute("""

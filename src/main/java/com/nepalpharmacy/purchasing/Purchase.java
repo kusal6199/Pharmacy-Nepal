@@ -10,6 +10,7 @@ public record Purchase(
         UUID supplierId,
         LocalDate purchaseDate,
         String invoiceNumber,
+        PurchasePaymentMethod paymentMethod,
         long totalAmountPaisa,
         Instant createdAt,
         UUID createdBy
@@ -19,6 +20,7 @@ public record Purchase(
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(supplierId, "supplierId");
         Objects.requireNonNull(purchaseDate, "purchaseDate");
+        Objects.requireNonNull(paymentMethod, "paymentMethod");
         Objects.requireNonNull(createdAt, "createdAt");
         if (totalAmountPaisa < 0) {
             throw new IllegalArgumentException("Purchase total cannot be negative.");

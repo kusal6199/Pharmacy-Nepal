@@ -81,6 +81,7 @@ public final class JdbcPurchaseEntryRepository implements PurchaseEntryRepositor
                 draft.supplierId(),
                 draft.purchaseDate(),
                 draft.invoiceNumber(),
+                draft.paymentMethod(),
                 PurchaseValidator.totalPaisa(draft),
                 createdAt,
                 draft.createdBy());

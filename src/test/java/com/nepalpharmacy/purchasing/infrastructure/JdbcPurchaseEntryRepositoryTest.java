@@ -16,6 +16,7 @@ import com.nepalpharmacy.product.UnitOfSale;
 import com.nepalpharmacy.product.infrastructure.JdbcProductRepository;
 import com.nepalpharmacy.purchasing.PurchaseDraft;
 import com.nepalpharmacy.purchasing.PurchaseLineDraft;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.PurchaseService;
 import com.nepalpharmacy.shared.infrastructure.DataAccessException;
 import com.nepalpharmacy.shared.infrastructure.JdbcTransactionRunner;
@@ -89,6 +90,19 @@ class JdbcPurchaseEntryRepositoryTest {
     }
 
     @Test
+    void persistsExplicitCreditPaymentMethodInsidePurchaseTransaction() {
+        LocalDate date = LocalDate.of(2026, 9, 13);
+        PurchaseDraft draft = new PurchaseDraft(supplier.id(), date, "CREDIT-1",
+                PurchasePaymentMethod.CREDIT,
+                List.of(line(product.id(), "CREDIT-BATCH", date.plusYears(1), 2, 100)), null);
+
+        var saved = service.record(draft);
+
+        assertEquals(PurchasePaymentMethod.CREDIT,
+                purchases.findById(saved.id()).orElseThrow().paymentMethod());
+    }
+
+    @Test
     void rollsBackHeaderLinesBatchesAndMovementsWhenAnyLineFails() {
         LocalDate purchaseDate = LocalDate.of(2026, 9, 13);
         PurchaseLineDraft valid = line(
@@ -99,6 +113,7 @@ class JdbcPurchaseEntryRepositoryTest {
         assertThrows(DataAccessException.class, () -> service.record(
                 new PurchaseDraft(
                         supplier.id(), purchaseDate, "INV-ROLLBACK",
+                        PurchasePaymentMethod.CREDIT,
                         List.of(valid, missingProduct), null)));
 
         assertEquals(0, purchases.count());
@@ -115,6 +130,7 @@ class JdbcPurchaseEntryRepositoryTest {
 
         service.record(new PurchaseDraft(
                 supplier.id(), purchaseDate, "INV-FEFO",
+                PurchasePaymentMethod.CASH,
                 List.of(
                         line(product.id(), "LATER", later, 20, 100),
                         line(product.id(), "SOONER", sooner, 7, 100)),
@@ -130,7 +146,8 @@ class JdbcPurchaseEntryRepositoryTest {
 
     private PurchaseDraft draft(
             String invoice, LocalDate date, PurchaseLineDraft line) {
-        return new PurchaseDraft(supplier.id(), date, invoice, List.of(line), null);
+        return new PurchaseDraft(supplier.id(), date, invoice,
+                PurchasePaymentMethod.CASH, List.of(line), null);
     }
 
     private static PurchaseLineDraft line(

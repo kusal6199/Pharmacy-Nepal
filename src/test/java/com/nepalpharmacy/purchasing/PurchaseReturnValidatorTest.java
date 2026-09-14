@@ -127,10 +127,32 @@ class PurchaseReturnValidatorTest {
         assertEquals(250, PurchaseReturnValidator.totalPaisa(draft));
     }
 
+    @Test
+    void requiresExplicitNonLegacySettlementMethod() {
+        UUID purchaseId = UUID.randomUUID();
+        UUID supplierId = UUID.randomUUID();
+        PurchaseReturnLineDraft line = line(UUID.randomUUID(), UUID.randomUUID(), 1, 100);
+        PurchaseReturnDraft missing = new PurchaseReturnDraft(purchaseId, supplierId, DATE,
+                PurchaseReturnReason.DAMAGED, null, null, List.of(line), null);
+        PurchaseReturnDraft legacy = new PurchaseReturnDraft(purchaseId, supplierId, DATE,
+                PurchaseReturnReason.DAMAGED, PurchasePaymentMethod.LEGACY_UNSPECIFIED,
+                null, List.of(line), null);
+
+        assertEquals("Settlement method is required.", assertThrows(
+                PurchaseReturnValidationException.class,
+                () -> PurchaseReturnValidator.validate(missing))
+                .fieldErrors().get("settlementMethod"));
+        assertEquals("Select Cash, QR / digital, or Credit / udharo.", assertThrows(
+                PurchaseReturnValidationException.class,
+                () -> PurchaseReturnValidator.validate(legacy))
+                .fieldErrors().get("settlementMethod"));
+    }
+
     private static PurchaseReturnDraft draft(
             UUID purchaseId, UUID supplierId, PurchaseReturnLineDraft line) {
         return new PurchaseReturnDraft(purchaseId, supplierId, DATE,
-                PurchaseReturnReason.DAMAGED, null, List.of(line), null);
+                PurchaseReturnReason.DAMAGED, PurchasePaymentMethod.CASH,
+                null, List.of(line), null);
     }
 
     private static PurchaseReturnLineDraft line(
@@ -139,7 +161,8 @@ class PurchaseReturnValidatorTest {
     }
 
     private static Purchase purchase(UUID id, UUID supplierId) {
-        return new Purchase(id, supplierId, DATE.minusDays(1), "INV-1", 500,
+        return new Purchase(id, supplierId, DATE.minusDays(1), "INV-1",
+                PurchasePaymentMethod.CASH, 500,
                 Instant.parse("2026-09-13T00:00:00Z"), null);
     }
 

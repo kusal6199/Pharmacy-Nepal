@@ -27,7 +27,7 @@ class DatabaseBootstrapTest {
 
         int migrationsExecuted = bootstrap.migrate();
 
-        assertEquals(5, migrationsExecuted);
+        assertEquals(6, migrationsExecuted);
         assertTrue(Files.exists(databaseFile));
 
         try (var connection = DriverManager.getConnection(bootstrap.jdbcUrl());
@@ -38,11 +38,12 @@ class DatabaseBootstrapTest {
                        AND name IN ('product', 'supplier', 'product_batch', 'purchase',
                                     'purchase_line', 'inventory_movement', 'customer',
                                     'invoice_counter', 'sale', 'sale_line', 'sales_return',
-                                    'sales_return_line', 'purchase_return', 'purchase_return_line')
+                                    'sales_return_line', 'purchase_return', 'purchase_return_line',
+                                    'customer_account_entry', 'supplier_account_entry')
                      """)) {
             try (var results = statement.executeQuery()) {
                 assertTrue(results.next());
-                assertEquals(14, results.getInt(1));
+                assertEquals(16, results.getInt(1));
             }
         }
 
@@ -96,7 +97,7 @@ class DatabaseBootstrapTest {
             batch.executeUpdate();
         }
 
-        assertEquals(4, bootstrap.migrate());
+        assertEquals(5, bootstrap.migrate());
 
         try (var connection = bootstrap.openConnection();
              var product = connection.prepareStatement("""
@@ -137,10 +138,10 @@ class DatabaseBootstrapTest {
             execute(connection, """
                     INSERT INTO purchase (
                         id, supplier_id, purchase_date, invoice_number,
-                        total_amount_paisa, created_at, created_by
+                        payment_method, total_amount_paisa, created_at, created_by
                     ) VALUES (
                         'purchase-1', 'supplier-1', '2026-09-13', 'SUP-1',
-                        100, '2026-09-13T04:00:00Z', NULL
+                        'CASH', 100, '2026-09-13T04:00:00Z', NULL
                     )
                     """);
             execute(connection, """
@@ -164,10 +165,10 @@ class DatabaseBootstrapTest {
             execute(connection, """
                     INSERT INTO purchase_return (
                         id, return_number, original_purchase_id, supplier_id, return_date,
-                        reason, notes, total_amount_paisa, created_at, created_by
+                        reason, settlement_method, notes, total_amount_paisa, created_at, created_by
                     ) VALUES (
                         'purchase-return-1', 1, 'purchase-1', 'supplier-1', '2026-09-13',
-                        'DAMAGED', NULL, 100, '2026-09-13T06:00:00Z', NULL
+                        'DAMAGED', 'CASH', NULL, 100, '2026-09-13T06:00:00Z', NULL
                     )
                     """);
             insertMovement(connection, "movement-purchase", "PURCHASE_RECEIPT", "purchase-1");
@@ -202,10 +203,10 @@ class DatabaseBootstrapTest {
             execute(connection, """
                     INSERT INTO purchase (
                         id, supplier_id, purchase_date, invoice_number,
-                        total_amount_paisa, created_at, created_by
+                        payment_method, total_amount_paisa, created_at, created_by
                     ) VALUES (
                         'purchase-only', 'supplier-1', '2026-09-13', NULL,
-                        100, '2026-09-13T04:00:00Z', NULL
+                        'CASH', 100, '2026-09-13T04:00:00Z', NULL
                     )
                     """);
             insertMovement(connection, "movement-wrong-type", "SALE", "purchase-only");

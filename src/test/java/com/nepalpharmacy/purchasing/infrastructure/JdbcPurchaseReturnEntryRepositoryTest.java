@@ -20,6 +20,7 @@ import com.nepalpharmacy.product.infrastructure.JdbcProductRepository;
 import com.nepalpharmacy.purchasing.Purchase;
 import com.nepalpharmacy.purchasing.PurchaseDraft;
 import com.nepalpharmacy.purchasing.PurchaseLineDraft;
+import com.nepalpharmacy.purchasing.PurchasePaymentMethod;
 import com.nepalpharmacy.purchasing.PurchaseReturn;
 import com.nepalpharmacy.purchasing.PurchaseReturnDraft;
 import com.nepalpharmacy.purchasing.PurchaseReturnLineDraft;
@@ -116,6 +117,7 @@ class JdbcPurchaseReturnEntryRepositoryTest {
 
         assertEquals(1, completed.returnNumber());
         assertEquals(625, completed.totalAmountPaisa());
+        assertEquals(PurchasePaymentMethod.CASH, completed.settlementMethod());
         assertEquals(1, returns.count());
         assertEquals(1, returnLines.count());
         assertEquals(0, stock(source.lines().get(0).batchId()));
@@ -268,8 +270,15 @@ class JdbcPurchaseReturnEntryRepositoryTest {
         };
         PurchaseReturnService failingService = serviceWith(failingMovements);
 
+        PurchaseReturnDraft validCreditDraft = draftFor(source, 2);
+        PurchaseReturnDraft creditDraft = new PurchaseReturnDraft(
+                validCreditDraft.originalPurchaseId(), validCreditDraft.supplierId(),
+                validCreditDraft.returnDate(), validCreditDraft.reason(),
+                PurchasePaymentMethod.CREDIT, validCreditDraft.notes(),
+                validCreditDraft.lines(), validCreditDraft.createdBy());
+
         assertThrows(DataAccessException.class,
-                () -> failingService.record(draftFor(source, 2)));
+                () -> failingService.record(creditDraft));
 
         assertEquals(0, returns.count());
         assertEquals(0, returnLines.count());
@@ -289,6 +298,7 @@ class JdbcPurchaseReturnEntryRepositoryTest {
     private Purchase purchase(String batchNumber, int quantity, long unitCost) {
         return purchaseService.record(new PurchaseDraft(
                 supplier.id(), DATE.minusDays(1), "INV-" + batchNumber,
+                PurchasePaymentMethod.CASH,
                 List.of(new PurchaseLineDraft(product.id(), batchNumber,
                         DATE.plusYears(1), null, quantity, unitCost)), null));
     }
@@ -316,7 +326,8 @@ class JdbcPurchaseReturnEntryRepositoryTest {
     private static PurchaseReturnDraft draft(
             UUID purchaseId, UUID supplierId, PurchaseReturnLineDraft line) {
         return new PurchaseReturnDraft(purchaseId, supplierId, DATE,
-                PurchaseReturnReason.DAMAGED, "  damaged carton  ", List.of(line), null);
+                PurchaseReturnReason.DAMAGED, PurchasePaymentMethod.CASH,
+                "  damaged carton  ", List.of(line), null);
     }
 
     private ProductDraft productDraft(long purchasePrice) {

@@ -222,6 +222,24 @@ class JdbcSalesReturnEntryRepositoryTest {
     }
 
     @Test
+    void customerlessSaleCannotBeRefundedToCredit() {
+        SaleReceipt sale = sell("NO-CUSTOMER-CREDIT", 10, 2);
+        var original = source(sale).lines().get(0);
+        SalesReturnDraft creditRefund = new SalesReturnDraft(sale.sale().id(), DATE,
+                SalesReturnReason.CUSTOMER_RETURN, PaymentMethod.CREDIT, null,
+                List.of(new SalesReturnLineDraft(original.originalSaleLineId(),
+                        original.batchId(), 1, original.unitPricePaisa())), null);
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> returnService.record(creditRefund));
+
+        assertEquals("Credit refund requires a customer account.",
+                exception.fieldErrors().get("refundMethod"));
+        assertEquals(0, returns.count());
+    }
+
+    @Test
     void originalSaleAndLineRemainByteForByteUnchanged() {
         SaleReceipt sale = sell("IMMUTABLE", 10, 3);
         List<String> before = originalRows(sale.sale().id());
@@ -269,6 +287,7 @@ class JdbcSalesReturnEntryRepositoryTest {
     private SaleReceipt sell(String batchNumber, int received, int sold) {
         purchaseService.record(new PurchaseDraft(
                 supplier.id(), DATE.minusDays(1), "PURCHASE-" + batchNumber,
+                com.nepalpharmacy.purchasing.PurchasePaymentMethod.CASH,
                 List.of(new PurchaseLineDraft(product.id(), batchNumber,
                         DATE.plusYears(1), null, received, 100)), null));
         BatchStock stock = batches.findAvailableByProduct(product.id(), DATE).stream()

@@ -131,6 +131,11 @@ public final class PurchaseReturnValidator {
         if (draft.reason() == null) {
             errors.put("reason", "Return reason is required.");
         }
+        if (draft.settlementMethod() == null) {
+            errors.put("settlementMethod", "Settlement method is required.");
+        } else if (draft.settlementMethod() == PurchasePaymentMethod.LEGACY_UNSPECIFIED) {
+            errors.put("settlementMethod", "Select Cash, QR / digital, or Credit / udharo.");
+        }
         if (draft.notes() != null && draft.notes().trim().length() > 500) {
             errors.put("notes", "Notes must be at most 500 characters.");
         }

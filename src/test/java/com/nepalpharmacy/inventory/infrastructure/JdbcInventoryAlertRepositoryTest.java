@@ -241,8 +241,8 @@ class JdbcInventoryAlertRepositoryTest {
         execute("""
                 INSERT INTO purchase (
                     id, supplier_id, purchase_date, invoice_number,
-                    total_amount_paisa, created_at, created_by
-                ) VALUES (?, ?, ?, NULL, 100, '2026-09-01T00:00:00Z', NULL)
+                    payment_method, total_amount_paisa, created_at, created_by
+                ) VALUES (?, ?, ?, NULL, 'CASH', 100, '2026-09-01T00:00:00Z', NULL)
                 """, purchase, SUPPLIER_ID, AS_OF);
         return purchase;
     }
@@ -277,8 +277,8 @@ class JdbcInventoryAlertRepositoryTest {
         execute("""
                 INSERT INTO purchase_return (
                     id, return_number, original_purchase_id, supplier_id, return_date,
-                    reason, notes, total_amount_paisa, created_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, 'DAMAGED', NULL, 100,
+                    reason, settlement_method, notes, total_amount_paisa, created_at, created_by
+                ) VALUES (?, ?, ?, ?, ?, 'DAMAGED', 'CASH', NULL, 100,
                           '2026-09-01T00:00:00Z', NULL)
                 """, purchaseReturn, ++documentNumber, purchase, SUPPLIER_ID, AS_OF);
         movement(batchId, "PURCHASE_RETURN", quantity, purchaseReturn);

@@ -31,7 +31,19 @@ public final class SalesReturnValidator {
             SalesReturnDraft draft,
             Map<UUID, SalesReturnLineAvailability> availabilityByOriginalLine
     ) {
+        validate(draft, null, availabilityByOriginalLine);
+    }
+
+    public static void validate(
+            SalesReturnDraft draft,
+            Sale originalSale,
+            Map<UUID, SalesReturnLineAvailability> availabilityByOriginalLine
+    ) {
         Map<String, String> errors = basicErrors(draft);
+        if (draft != null && draft.refundMethod() == PaymentMethod.CREDIT
+                && originalSale != null && originalSale.customerId() == null) {
+            errors.put("refundMethod", "Credit refund requires a customer account.");
+        }
         Map<UUID, Long> requestedByOriginalLine = new LinkedHashMap<>();
         if (draft != null && draft.lines() != null) {
             for (int index = 0; index < draft.lines().size(); index++) {

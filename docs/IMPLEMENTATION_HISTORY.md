@@ -1,8 +1,9 @@
 # Pharmacy MVP implementation history
 
-Last updated: 2026-09-13  
-Current database schema: V5
-Current completed vertical slices: product master, purchase entry, POS/sales, and sales/purchase returns
+Last updated: 2026-09-14
+Current application phase: V8
+Current database schema: V6
+Current completed vertical slices: product master, purchase entry, POS/sales, sales/purchase returns, persisted document history, expiry/low-stock operations, and customer/supplier Udharo credit accounts
 
 ## Purpose and maintenance rule
 
@@ -2097,3 +2098,104 @@ Purpose: surface persisted expiry and replenishment risks through a deterministi
 - JavaFX manual acceptance remains unperformed because this execution environment had no screen. This is an environment limitation, not a claimed successful GUI test; the view compiles and the data behavior is covered by real SQLite integration tests.
 - No expiry write-off, damage/adjustment transaction, new movement type, automatic supplier action/order, inventory valuation, Udharo ledger, reports module, RBAC/audit, Nepal invoice/PAN/VAT legal formatting, printing, barcode workflow, CBMS, cloud sync, multi-branch support, scheduled/background/SMS/email alert, or AI forecasting was added.
 - Recommended next phase: V8 — Customer/Supplier Credit and Udharo Ledger. V8 was not started in this task.
+
+---
+
+## V8 — Customer/supplier credit and Udharo ledger
+
+Date: 2026-09-14
+Application phase: V8, Flyway schema: V6
+Migration: `src/main/resources/db/migration/V6__create_credit_udharo_ledger.sql`
+Purpose: add derived customer receivables and supplier payables, immutable manual opening/payment entries, and explicit supplier-side transaction settlement classifications without introducing a general ledger or stored balances.
+
+### V8-001 — Files changed
+
+- Added the `credit` domain vocabulary and immutable models: `AccountBalanceFilter.java`, `AccountBalancePresentation.java`, `AccountEntry.java`, `AccountEntryDraft.java`, `AccountEntryType.java`, `AccountEntryValidator.java`, `AccountLedgerEntry.java`, `AccountValidationException.java`, `BoundedAccountResult.java`, `CustomerAccountSummary.java`, `CustomerAccountDetail.java`, `SupplierAccountSummary.java`, and `SupplierAccountDetail.java`.
+- Added narrow credit contracts and services: `CustomerAccountRepository.java`, `CustomerAccountEntryRepository.java`, `CustomerAccountService.java`, `SupplierAccountRepository.java`, `SupplierAccountEntryRepository.java`, and `SupplierAccountService.java`.
+- Added JDBC credit adapters: `JdbcCustomerAccountRepository.java`, `JdbcCustomerAccountEntryRepository.java`, `JdbcSupplierAccountRepository.java`, and `JdbcSupplierAccountEntryRepository.java`.
+- Added the combined JavaFX `credit/ui/CreditAccountsScreen.java`.
+- Added `purchasing/PurchasePaymentMethod.java` with application-selectable Cash, QR/digital, and Credit/Udharo values plus the migration-only `LEGACY_UNSPECIFIED` value.
+- Modified `Purchase.java`, `PurchaseDraft.java`, `PurchaseSummary.java`, and `RecentPurchase.java` to carry the saved purchase payment method.
+- Modified `PurchaseReturn.java` and `PurchaseReturnDraft.java` to carry the saved supplier-return settlement method.
+- Modified `PurchaseValidator.java` and `PurchaseReturnValidator.java` to require an explicit non-legacy selection for every new transaction.
+- Modified `JdbcPurchaseRepository.java`, `JdbcPurchaseEntryRepository.java`, `JdbcPurchaseHistoryRepository.java`, `JdbcPurchaseReturnRepository.java`, and `JdbcPurchaseReturnEntryRepository.java` to map and persist the new classifications inside the existing transaction boundaries.
+- Modified `PurchaseScreen.java`, `PurchaseReturnScreen.java`, and `PurchaseHistoryScreen.java` for required selectors, clear persisted labels, recent-list visibility, and purchase-detail visibility.
+- Modified `SalesReturnValidator.java` and `JdbcSalesReturnEntryRepository.java` so a new Credit refund is checked against the original sale's customer within the existing return transaction.
+- Modified `ApplicationContext.java` to construct all four credit adapters and both services at the sole production composition point. Modified `PharmacyApplication.java` to receive only the services, add one `Udharo / Credit` route, add a dashboard action, and open the combined screen.
+- Added `AccountBalancePresentationTest.java`, `AccountEntryValidatorTest.java`, `CreditMigrationTest.java`, and `JdbcCreditAccountRepositoryTest.java`.
+- Modified `PurchaseValidatorTest.java`, `PurchaseReturnValidatorTest.java`, `SalesReturnValidatorTest.java`, `JdbcPurchaseEntryRepositoryTest.java`, `JdbcPurchaseReturnEntryRepositoryTest.java`, `JdbcSalesReturnEntryRepositoryTest.java`, `JdbcPurchaseHistoryRepositoryTest.java`, and `PurchaseHistoryServiceTest.java` for the new domain fields, validations, persistence, and display read models.
+- Modified `DatabaseBootstrapTest.java`, `JdbcInventoryAlertRepositoryTest.java`, `JdbcSaleEntryRepositoryTest.java`, and `JdbcSalesReturnEntryRepositoryTest.java` SQL fixtures only where inserts must now supply the required purchase/return classification; their original V1-V7 behavior assertions remain active.
+- Modified `README.md` and `docs/ARCHITECTURE.md`, including the `credit` package boundary and application-phase/schema distinction. Corrected this file's previously stale top summary, which still listed only four slices and schema V5 despite V6/V7 application phases having been completed; the top now accurately reports application V8/schema V6. Prior phase entries were not rewritten.
+- Added no Maven dependency, plugin, DI framework, CSS rule, editable balance field, due-date field, credit-limit field, inventory movement type, or stock-view change. V1 through V5 migrations remain untouched.
+
+### V8-002 — Database effect
+
+- Added exactly one migration: `V6__create_credit_udharo_ledger.sql`. A fresh database applies V1 through V6; a schema-V5 database applies this one migration. Application phase V8 therefore runs on Flyway schema V6.
+- Rebuilt singular `purchase` through `purchase_next -> copy -> drop -> rename`. The canonical replacement adds required `payment_method` checked to `CASH`, `QR`, `CREDIT`, or `LEGACY_UNSPECIFIED`, with no default. Every copied V3-V5 row is explicitly classified `LEGACY_UNSPECIFIED`, and all prior IDs, supplier/date/invoice values, totals, timestamps, creator IDs, child lines, and relationships are retained. `idx_purchase_supplier_date` is recreated after the rebuild.
+- Rebuilt `purchase_return` through the parallel `_next` sequence. Its required, no-default `settlement_method` has the same four values; every copied V5 row becomes `LEGACY_UNSPECIFIED`. Return numbers, source purchase/supplier IDs, date, reason, notes, totals, timestamps, creators, child lines, and foreign-key relationships are retained. Original-purchase and supplier indexes are recreated.
+- The no-default rebuild is deliberate. `ALTER TABLE ... ADD COLUMN ... DEFAULT 'LEGACY_UNSPECIFIED'` would leave a silent default available to future buggy inserts; the replacement tables make omission fail loudly while using legacy classification only for rows actually copied during V6.
+- Added `customer_account_entry` with UUID-text ID, customer FK, ISO business date, checked `OPENING_BALANCE`/`PAYMENT_RECEIVED` type, positive integer-paisa amount, conditional null-or-Cash/QR payment method, optional 160-character reference, optional 500-character notes, ISO creation timestamp, and nullable creator ID.
+- Added `supplier_account_entry` with the parallel supplier FK and checked `OPENING_BALANCE`/`PAYMENT_MADE` types.
+- Added partial unique opening-balance indexes per party plus `(party_id, entry_date, created_at, id)` detail-order indexes for both manual-entry tables.
+- Added no customer/supplier/account balance column. Sale, sales return, customer, supplier, inventory movement, `batch_stock`, invoice counters, and all inventory movement types remain unchanged.
+- The V5-upgrade integration test preserves customer, supplier, sale, sales-return, purchase, purchase-return, purchase-line, and purchase-return-line identities/values and finishes with a clean `PRAGMA foreign_key_check`.
+
+### V8-003 — Domain and validation effect
+
+- A customer balance is derived as opening balance plus Credit sales minus customer-linked Credit sales-return refunds minus payments received. A supplier balance is derived as opening balance plus Credit purchases minus Credit purchase returns minus payments made.
+- Sale, purchase, and return headers are the financial events; they are not duplicated into manual account tables. Only genuine opening balances and settlement payments create account-entry rows.
+- Signed balances are retained. Positive customer values render `Customer owes NPR X`, negative values `Customer credit NPR X`, and zero `Settled`; supplier equivalents are `Payable to supplier NPR X`, `Supplier credit NPR X`, and `Settled`.
+- Opening balances require a positive amount, forbid a payment method, and are limited to one per party by both service validation and a partial unique database index.
+- Payments require a positive current outstanding balance, a positive amount no greater than that balance, and Cash or QR/digital. Credit is forbidden as a manual settlement method. An exactly equal payment is valid and produces a settled account; a zero/negative current balance and any overpayment are rejected.
+- References normalize blank to null and are limited to 160 characters. Notes normalize blank to null and follow the existing 500-character convention. Manual entries have insert-only interfaces and no edit/delete UI.
+- Purchase and purchase-return drafts now require Cash, QR/digital, or Credit/Udharo. Null and `LEGACY_UNSPECIFIED` are rejected for new application writes; the UI deliberately has no default selection and never offers the legacy value.
+- A new sales return whose refund method is Credit now requires the original sale to have a customer, with the exact message `Credit refund requires a customer account.`. Historical customerless Credit-return data is neither mutated nor assigned: the derived query's customer join excludes it.
+- Amount and running-balance math remains integer paisa. Java aggregation uses `Math.addExact`/`Math.negateExact`; SQLite uses exact `INTEGER` deltas and aggregation. No `float` or `double` represents money.
+
+### V8-004 — Repository, transaction, and architecture effect
+
+- Customer and supplier summary queries use union-style event projections over existing transaction tables plus their one manual-entry table. Cash, QR, and `LEGACY_UNSPECIFIED` transaction events fail the Credit predicates and therefore contribute exactly zero.
+- Account-detail queries order by business date, `created_at`, event type, and stable source ID. Java builds each running balance with `Math.addExact`, so repeated reads reproduce the same final balance and same-day ties are deterministic.
+- Summary reads include active and inactive party masters. Case-insensitive name search, All/positive/credit/settled filters, balance-severity ordering, last-activity dates, and N+1 limits are set based: repositories request at most 151, services expose 150 plus `truncated`; no per-row query loop was added.
+- Ledger references use readable document text (`Sale #23`, `Sales return #4`, supplier invoice text, `Purchase return #7`) instead of raw UUIDs. Manual reference/notes remain visible as immutable entry metadata.
+- `CustomerAccountService` and `SupplierAccountService` run party existence, current derived balance, opening existence, validation, and account-entry insert through the shared `TransactionRunner`. A failing insert rolls back the complete manual entry.
+- The purchase method is inserted with the purchase header by `JdbcPurchaseEntryRepository`; the return method is inserted with the return header by `JdbcPurchaseReturnEntryRepository`. They are not separate writes, so the established header/line/batch/movement/counter rollback behavior also covers classification.
+- The Credit refund/customer rule is checked after the original sale is reloaded inside `JdbcSalesReturnEntryRepository` and before any counter/header/line/movement write.
+- Repositories remain narrow: list/detail/balance reads are separate from insert/opening-existence contracts on both sides. Services depend on interfaces, screens depend only on services, JDBC remains under `infrastructure`, and all construction remains in `ApplicationContext` with no framework.
+- Package direction is one-way: `credit` is a higher-level read/settlement capability over party and transaction events; `party`, `sales`, `purchasing`, `product`, and `inventory` do not depend back on `credit`. Existing inventory/FEFO/expiry code and `DatabaseBootstrap.verifyInventoryMovementReferences()` are unchanged.
+
+### V8-005 — UI and navigation effect
+
+- Added one `Udharo / Credit accounts` screen with Customer receivables and Supplier payables tabs instead of disconnected screens. Both reuse existing panels, tables, buttons, scroll containers, field labels, and feedback styles; no CSS was necessary.
+- Each tab starts with the positive/open-balance filter, supports case-insensitive name search and All/Owes-or-payable/Party-credit/Settled filters, displays party, active/inactive state, current contextual balance, and last activity, and gives explicit first-150 truncation feedback.
+- Selecting a party loads its contextual current balance and chronological ledger table with date, activity, readable reference, increase/decrease columns, and contextual running balance. Inactive parties remain visible.
+- Each tab provides one immutable-entry form that can set the one opening balance or record payment received/made. It captures date, exact NPR amount, conditional Cash/QR method, optional reference, and optional notes; service errors appear in the existing feedback style.
+- Purchase Entry now has a required payment-method selector with no default. Purchase Return has the parallel required settlement selector with no default. Both offer Cash, QR/digital, and Credit/Udharo only.
+- Recent Purchase Entry rows and Purchase History list/detail now display the persisted method; migrated rows read `Legacy / unspecified` clearly.
+- Added `Udharo / Credit` to the 175-pixel navigation and `Review Udharo / Credit` to the dashboard actions. The existing width remains sufficient. Live balance cards were deliberately not duplicated onto the dashboard, avoiding extra account queries on every landing-page open while retaining a prominent route.
+- UI code performs presentation, user-input parsing, service calls, selection state, and error display only. It contains no SQL, event inclusion rule, balance aggregation, payment-limit rule, or persistence transaction logic.
+
+### V8-006 — Tests and verification
+
+- Confirmed the untouched baseline first: 87 tests, 0 failures, 0 errors, 0 skipped.
+- `CreditMigrationTest` covers V5-to-V6 upgrade, explicit `LEGACY_UNSPECIFIED` conversion, no-default/not-null classification columns, retained financial/party/child relationships, new account tables/indexes, no stored balance column, clean foreign-key check, positive/manual-method constraints, and duplicate-opening database enforcement.
+- `AccountEntryValidatorTest` covers valid customer/supplier openings, duplicate opening, forbidden opening method, zero/negative amounts, Cash/QR settlements, forbidden Credit settlement, zero/negative-outstanding rejection, overpayment rejection, exact payment acceptance, and reference/notes bounds.
+- `AccountBalancePresentationTest` covers positive, settled, and negative contextual labels for customer and supplier accounts.
+- `JdbcCreditAccountRepositoryTest` uses fresh migrated SQLite plus deterministic dates/clocks. It covers the exact customer `1000 + 500 - 400 - 200 - 900 = 0` ledger and exact supplier `2000 + 5000 - 3000 - 1000 - 3000 = 0` ledger, every running step and readable reference, Cash/QR no-effect behavior for sales/purchases/returns, prominent legacy no-effect behavior, historical customerless Credit-refund exclusion, negative balances, all filters, case-insensitive search, inactive customer/supplier visibility, duplicate opening, overpayment, exact settlement, multiple-Credit-sale aggregation, same-time stable ordering, 150/151 truncation, transaction rollback, and `long` overflow failure.
+- Expanded purchase, return, history, and sales-return tests to prove explicit method validation, Credit method persistence, return settlement persistence, purchase-history projection, the new customer requirement/error, and no partial return row when that rule rejects.
+- Updated only the required SQL fixture columns and migration/table-count expectations in existing bootstrap/inventory/sales tests. All original product, stock, FEFO, movement, expiry, alert, history, return, immutability, and rollback assertions remain enabled.
+- Final `./mvnw test`: 116 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- Final `./mvnw verify`: 116 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+- Manual JavaFX acceptance was attempted with isolated `PHARMACY_DATA_DIR=/tmp/pharmacy-v8-manual-20260914`. This environment exposed no graphical screen, and JavaFX failed at `Screen.getMainScreen()` before a window opened. The process was stopped; no GUI click-through is claimed. UI classes compile, while migration, account behavior, transaction classification, and ledger reads are covered by real temporary-SQLite tests.
+- `git diff --check` is recorded after the final history edit in this entry's completion pass.
+
+### V8-007 — Decisions, limitations, and excluded scope
+
+- Chose a derived subledger matching movement-derived stock rather than mutable `customer.balance`/`supplier.balance` columns or duplicated posting rows. This removes synchronization risk and keeps immutable transaction headers as the source of truth.
+- Chose two manual-entry tables rather than a polymorphic party table so each foreign key and allowed entry type is database-enforced without nullable dual-party columns.
+- Chose the required SQLite table rebuild over `ADD COLUMN` specifically to preserve honest legacy classification while leaving no default that could mask a future omitted field.
+- Chose on-demand detail reads plus bounded account summaries over loading every ledger for every list row. Running totals are calculated only for the selected party; the list remains one bounded aggregate query and avoids N+1 reads.
+- Historical V3-V5 supplier transactions are not guessed as paid or Credit. `LEGACY_UNSPECIFIED` contributes zero and stays visibly distinguishable in purchase history. Historical customerless Credit refunds are ignored because no legitimate customer account can own them.
+- JavaFX manual click-through remains unperformed because this execution environment has no screen. This is an environment limitation, not a successful GUI claim.
+- Out of scope: chart of accounts, journal entries, double-entry accounting, cash book, P&L, balance sheet, tax accounting, due dates, aging/overdue state, interest/late fees, credit limits, split payments, loyalty, reminders, automatic supplier ordering, reports/analytics, RBAC/authentication, audit log, CBMS, cloud sync, multi-branch, printing/legal invoice formatting, edits/deletes of financial events, and any inventory movement/view/stock-semantic change.
+- Recommended next phase: V9 — Core Operational & Financial Reports. V9 was not started in this task.
