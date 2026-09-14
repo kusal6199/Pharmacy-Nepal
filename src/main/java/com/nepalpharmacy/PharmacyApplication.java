@@ -2,6 +2,8 @@ package com.nepalpharmacy;
 
 import com.nepalpharmacy.bootstrap.ApplicationContext;
 import com.nepalpharmacy.bootstrap.DatabaseBootstrap;
+import com.nepalpharmacy.inventory.InventoryAlertService;
+import com.nepalpharmacy.inventory.ui.InventoryAlertScreen;
 import com.nepalpharmacy.party.CustomerService;
 import com.nepalpharmacy.party.SupplierService;
 import com.nepalpharmacy.product.ProductService;
@@ -43,6 +45,7 @@ public final class PharmacyApplication extends Application {
     private PurchaseReturnService purchaseReturnService;
     private SaleHistoryService saleHistoryService;
     private PurchaseHistoryService purchaseHistoryService;
+    private InventoryAlertService inventoryAlertService;
     private int migrationsExecuted;
 
     @Override
@@ -59,6 +62,7 @@ public final class PharmacyApplication extends Application {
         purchaseReturnService = context.purchaseReturnService();
         saleHistoryService = context.saleHistoryService();
         purchaseHistoryService = context.purchaseHistoryService();
+        inventoryAlertService = context.inventoryAlertService();
 
         shell.setTop(createHeader());
         shell.setLeft(createNavigation());
@@ -106,9 +110,11 @@ public final class PharmacyApplication extends Application {
         salesHistory.setOnAction(event -> showSalesHistory());
         Button purchaseHistory = navigationButton("Purchase history");
         purchaseHistory.setOnAction(event -> showPurchaseHistory());
+        Button inventoryAlerts = navigationButton("Inventory alerts");
+        inventoryAlerts.setOnAction(event -> showInventoryAlerts());
 
         VBox navigation = new VBox(8, dashboard, products, purchases, pos,
-                salesHistory, purchaseHistory, salesReturns, purchaseReturns);
+                inventoryAlerts, salesHistory, purchaseHistory, salesReturns, purchaseReturns);
         navigation.getStyleClass().add("navigation");
         navigation.setPadding(new Insets(12));
         navigation.setPrefWidth(175);
@@ -127,13 +133,14 @@ public final class PharmacyApplication extends Application {
         HBox cards = new HBox(16,
                 statusCard("Database", "Ready"),
                 statusCard("Schema updates", Integer.toString(migrationsExecuted)),
-                statusCard("Current capability", "Catalog + purchases + POS + returns"));
+                statusCard("Current capability", "Catalog + stock alerts + transactions"));
         cards.setPadding(new Insets(12, 28, 28, 28));
 
         Label guidance = new Label(
                 "Maintain the product catalog, receive supplier stock by batch and expiry, then use " +
                 "Point of sale for FEFO-guided cash, QR, or credit sales, and record returns " +
-                "against their original transaction lines.");
+                "against their original transaction lines. Review Inventory alerts for expiring " +
+                "batches and products that need replenishment.");
         guidance.getStyleClass().add("guidance");
         guidance.setWrapText(true);
         guidance.setMaxWidth(760);
@@ -159,8 +166,11 @@ public final class PharmacyApplication extends Application {
         Button openPurchaseHistory = new Button("View purchase history");
         openPurchaseHistory.getStyleClass().add("secondary-button");
         openPurchaseHistory.setOnAction(event -> showPurchaseHistory());
+        Button openInventoryAlerts = new Button("Review inventory alerts");
+        openInventoryAlerts.getStyleClass().add("primary-button");
+        openInventoryAlerts.setOnAction(event -> showInventoryAlerts());
 
-        FlowPane actions = new FlowPane(10, 10, openProducts, openPurchases, openPos,
+        FlowPane actions = new FlowPane(10, 10, openInventoryAlerts, openProducts, openPurchases, openPos,
                 openSalesHistory, openPurchaseHistory, openSalesReturns, openPurchaseReturns);
         VBox content = new VBox(20, cards, guidance, actions);
         content.setPadding(new Insets(8, 28, 28, 28));
@@ -202,6 +212,10 @@ public final class PharmacyApplication extends Application {
     private void showPurchaseHistory() {
         shell.setCenter(new PurchaseHistoryScreen(
                 purchaseHistoryService, this::showPurchaseReturns).view());
+    }
+
+    private void showInventoryAlerts() {
+        shell.setCenter(new InventoryAlertScreen(inventoryAlertService).view());
     }
 
     private VBox statusCard(String label, String value) {

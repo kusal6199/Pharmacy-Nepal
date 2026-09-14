@@ -11,7 +11,7 @@ Local-first pharmacy management application scaffolded for supervised, increment
 - Flyway schema migrations
 - JUnit 5 tests
 
-The executable opens a dashboard, product master, purchase-entry screen, point of sale, sales and purchase history screens, and both return screens. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided cash, QR, or customer-linked credit sales, find persisted historical documents after navigating away or restarting, and record batch-aware returns against original transaction lines.
+The executable opens a dashboard, product master, purchase-entry screen, point of sale, inventory-alert dashboard, sales and purchase history screens, and both return screens. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided cash, QR, or customer-linked credit sales, find persisted historical documents after navigating away or restarting, record batch-aware returns against original transaction lines, and review current expiry and replenishment risks.
 
 ## Prerequisites
 
@@ -144,10 +144,25 @@ The V6 history slice adds:
 
 V6 is read-only and adds no migration. Completed sales and purchases remain immutable; returns remain the only correction mechanism.
 
-Expiry/low-stock alerts, Udharo ledger/accounting, reports and analytics, RBAC/audit, Nepal invoice/PAN/VAT formatting, printing, barcode workflows, cloud sync, multi-branch support, and CBMS integration remain outside V6.
+### Expiry and low-stock operational dashboard
+
+The application-phase V7 dashboard adds:
+
+1. Six non-overlapping counts for expired, 0-30, 31-60, and 61-90-day batches plus low-stock and out-of-stock active products
+2. Expiry rows for positive physical stock, including clearly marked inactive products that still have stock
+3. Product-level physical, sellable, and expired stock totals derived from the existing `batch_stock` view
+4. Exact day-window and case-insensitive product/generic/manufacturer filters
+5. Active-product stock-status and product-name filters
+6. Deterministic ordering, 150-row caps, and explicit truncation feedback
+7. A Refresh action that rereads persisted products, batches, and all four existing movement types
+8. Navigation and a dashboard action that open the dedicated operational view
+
+Low-stock calculations use sellable non-expired stock, not total physical stock. Expiry alerts do not modify inventory. Application phase V7 adds no database migration, so the Flyway schema remains V5.
+
+Udharo ledger/accounting, stock adjustments/write-offs, automatic purchase orders, reports and analytics, RBAC/audit, Nepal invoice/PAN/VAT formatting, printing, barcode workflows, scheduled notifications, cloud sync, multi-branch support, and CBMS integration remain outside V7.
 
 See `docs/MVP_SCOPE.md` for the scope boundary and `docs/ARCHITECTURE.md` for the initial design.
 
 ## Detailed implementation history
 
-See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V6, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.
+See `docs/IMPLEMENTATION_HISTORY.md` for the field-by-field and file-by-file record of V1 through V7, their tests, migration behavior, and every later project change. `AGENTS.md` requires future work to update that report in the same task.

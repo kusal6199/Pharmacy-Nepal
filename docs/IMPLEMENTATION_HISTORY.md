@@ -2008,3 +2008,92 @@ Purpose: make completed transactions discoverable after navigation or applicatio
 - No document edit, invoice reprint, PDF, thermal/A4 print, CSV/Excel export, reports dashboard, analytics, stock valuation, or new accounting behavior was added.
 - Expiry/low-stock alerts, Udharo ledger/accounting, reports, RBAC/audit, Nepal invoice/PAN/VAT legal formatting, printing, barcode workflows, cloud sync, multi-branch behavior, and CBMS all remain out of scope.
 - Recommended next phase: an operational inventory/expiry and low-stock dashboard, while retaining movement-derived stock and the same bounded read-model architecture. V7 work was not started here.
+
+---
+
+## V7 — Expiry and low-stock operational dashboard
+
+Date: 2026-09-13
+Migration: none
+Purpose: surface persisted expiry and replenishment risks through a deterministic, bounded, strictly read-only inventory projection without adding stock bookkeeping or changing transaction behavior.
+
+### V7-001 — Files changed
+
+- Added inventory alert enums and immutable read models: `ExpiryStatus.java`, `ExpiryHorizon.java`, `ProductStockStatus.java`, `ProductStockFilter.java`, `ExpiryBatchAlert.java`, `ProductStockAlert.java`, `InventoryAlertSummary.java`, `InventoryAlertCriteria.java`, `BoundedAlertResult.java`, and `InventoryAlertDashboard.java`.
+- Added `InventoryAlertRepository.java` as the narrow read contract and `InventoryAlertService.java` as the clock-driven orchestration/capping boundary.
+- Added `inventory/infrastructure/InventoryStockSql.java` to single-source the positive-physical-stock, not-expired, expired, positive-expired, and sellable predicates used by JDBC inventory reads.
+- Added `inventory/infrastructure/JdbcInventoryAlertRepository.java` with summary, expiry-batch, and product-stock aggregate queries.
+- Modified `inventory/infrastructure/JdbcBatchRepository.java` so its existing FEFO query uses the same shared sellable predicate as the alert repository instead of retaining an equivalent inline expression.
+- Added `inventory/ui/InventoryAlertScreen.java` for summary, filters, operational tables, truncation feedback, and explicit refresh.
+- Modified `bootstrap/ApplicationContext.java` to construct and expose the alert service at the sole production composition point.
+- Modified `PharmacyApplication.java` to receive that service, add `Inventory alerts` shell navigation, add a dashboard action, update capability/guidance text, and route the new screen.
+- Added `ExpiryStatusTest.java`, `ProductStockStatusTest.java`, `InventoryAlertServiceTest.java`, and `inventory/infrastructure/JdbcInventoryAlertRepositoryTest.java`.
+- Modified `README.md`, `docs/ARCHITECTURE.md`, and this append-only history.
+- Did not modify `DatabaseBootstrap.java`, `DatabaseBootstrapTest.java`, any V1-V5 migration, `batch_stock`, any transaction coordinator, inventory movement types, CSS, Maven dependencies, or prior test expectations.
+
+### V7-002 — Database effect
+
+- Migration: none. This is application phase V7 while the Flyway schema remains V5; no V7-to-Flyway version mapping was assumed and no `V7__...sql` file exists.
+- No table, column, constraint, view, counter, index, persisted row, or stored status was added or changed.
+- `product.reorder_threshold_base_units`, `product_batch.expiry_date`, and the existing `batch_stock` view already provide every required persisted value.
+- Existing `idx_product_batch_product_expiry`, `idx_inventory_movement_batch`, `idx_product_name`, and `idx_product_active` support the relevant joins/lookup paths. Queries are bounded, and the required case-insensitive substring matching uses `instr(lower(...), lower(?))`, which a normal B-tree index would not accelerate; a speculative V6 index migration was therefore rejected.
+- The five existing Flyway files remain byte-for-byte unchanged and fresh/current databases remain at schema version V5.
+- `DatabaseBootstrap.verifyInventoryMovementReferences()` remains untouched because V7 creates no transaction header, no movement type, and no movement row.
+
+### V7-003 — Stock definitions and read architecture
+
+- Physical batch stock is read directly from `batch_stock.quantity_base_units`, whose V5 definition already adds `PURCHASE_RECEIPT` and `SALE_RETURN` magnitudes and subtracts `SALE` and `PURCHASE_RETURN` magnitudes.
+- Sellable stock for an operational date is the sum only of batches whose movement-derived stock is positive and whose expiry is on or after that date.
+- Expired stock is the sum only of batches whose movement-derived stock is positive and whose expiry is before that date.
+- `InventoryStockSql` is package-private infrastructure vocabulary shared by the FEFO and dashboard queries. `JdbcBatchRepository.findAvailableByProduct` and `JdbcInventoryAlertRepository` therefore cannot drift into different today-expiry behavior: `expiry_date >= asOfDate` is the one shared sellable date predicate.
+- A zero or negative batch-stock row never contributes to sellable/expired totals and never enters an expiry alert. Negative data is neither clamped nor repaired; raw physical totals can expose it for diagnosis while it remains unsellable.
+- `InventoryAlertService` accepts an injected `Clock`, calculates one date per refresh, and also exposes an explicit-date overload. That same date is passed to all summary/table queries; repositories and screens contain no `LocalDate.now()` call.
+- The service normalizes null/blank filters, requests 151 rows, returns at most 150, and sets a truncation flag through `BoundedAlertResult`, matching V6's N+1 convention without another count query.
+- `JdbcInventoryAlertRepository` uses purpose-built aggregate queries. Its active-product CTE uses `LEFT JOIN` plus `COALESCE`, so a product with no batch or movement still computes as zero/out-of-stock without any N+1 query.
+- The dependency path is `InventoryAlertScreen -> InventoryAlertService -> InventoryAlertRepository -> JdbcInventoryAlertRepository -> SQLite`. No JDBC class crosses into the UI or service, and construction remains in `ApplicationContext`.
+
+### V7-004 — Expiry and product-status rules
+
+- Expiry classification uses exact `ChronoUnit.DAYS.between(asOfDate, expiryDate)` arithmetic: dates before the operational date are `EXPIRED`; day 0 through 30, 31 through 60, and 61 through 90 are three inclusive non-overlapping buckets; day 91 and later is `LATER` and excluded from the default alert list.
+- Default expiry ordering is expired first, then `expiry_date ASC`, case-insensitive product name, and case-insensitive batch number. Because all non-expired buckets are contiguous ranges, earliest-expiry ordering also produces their required bucket order.
+- Expiry search applies the established POS-style SQLite `instr(lower(value), lower(?))` substring technique across product name, generic name, and manufacturer. Horizon filters are `ALL`, `EXPIRED`, `0-30`, `31-60`, and `61-90`.
+- Expiry alerts include positive-stock batches for inactive products and carry `productActive` for an explicit `Inactive` UI label; discontinued physical medicine is not hidden.
+- Product totals and statuses include active products only. `OUT_OF_STOCK` means sellable stock is zero or negative regardless of threshold. `LOW_STOCK` requires positive sellable stock, a positive threshold, and stock less than or equal to that threshold. Positive stock with threshold zero, and positive stock above a configured threshold, is `OK`.
+- Only `OUT_OF_STOCK` and `LOW_STOCK` rows appear in the replenishment table. Ordering places out-of-stock first, then ascending `sellable_stock - reorder_threshold_base_units` severity, then case-insensitive product name. Filters support all alert rows, out-of-stock only, low-stock only, and case-insensitive product-name substring.
+- Summary fields count expired, 0-30, 31-60, and 61-90 batches as independent ranges plus low-stock and out-of-stock products as mutually exclusive statuses.
+
+### V7-005 — UI, navigation, and refresh behavior
+
+- `InventoryAlertScreen` displays an `As of` date, one explicit `Refresh` action, six non-overlapping summary cards, an expiry panel, and a low/out-of-stock panel.
+- The expiry table shows status, product, generic, batch, expiry date, signed days remaining, positive physical stock, base unit, manufacturer, and active/inactive product state. It never exposes its internal batch UUID.
+- The product table shows status, product, generic, manufacturer, sellable stock, physical stock, expired stock, configured reorder threshold, and base unit. It never exposes its internal product UUID.
+- Both tables have normal empty states, enter-to-apply searches, selector-triggered refresh, explicit Apply buttons, and a clear first-150/narrow-filters message when the N+1 result is truncated.
+- Every refresh calls `InventoryAlertService` and reruns the persisted summary and aggregate queries. There is no application cache or derived stock column, so receipts, sales, both return types, and product threshold edits appear without V7-specific writes.
+- `PharmacyApplication` adds an `Inventory alerts` navigation item and `Review inventory alerts` dashboard action. The established 175-pixel navigation width fits the new label, so it was checked and retained rather than widened unnecessarily.
+- The main dashboard does not duplicate all six live counts. They remain on the dedicated screen to avoid three extra database reads whenever the landing page opens and to keep its existing compact card row; the dashboard provides a prominent route instead.
+- Existing reusable style classes provide the cards, panels, tables, labels, buttons, feedback, and scrolling, so no CSS rule was added.
+- The screen performs presentation, filter capture, and error display only. It does not calculate stock, classify expiry/status, inspect movements, or execute SQL. Expiry alerts do not modify inventory.
+
+### V7-006 — Tests and verification
+
+- Added `ExpiryStatusTest` to prove expired/today and exact 30/31, 60/61, and 90/91-day classification boundaries.
+- Added `ProductStockStatusTest` to prove zero/negative stock is out-of-stock independently of threshold, the positive equal-threshold boundary is low, one unit above is OK, and threshold zero suppresses only positive-stock low alerts.
+- Added `InventoryAlertServiceTest` with an Asia/Kathmandu fixed clock to prove a single deterministic date reaches all three repository calls, blank/null enum defaults and trimmed searches are normalized, both queries request 151 rows, and each public result is capped at 150 with truncation reported.
+- Added four migrated-temporary-SQLite tests in `JdbcInventoryAlertRepositoryTest`. They prove all non-overlapping summary buckets; exact boundary rows; expired-first/earliest ordering; day-91 exclusion; today-expiry consistency with `JdbcBatchRepository` FEFO eligibility; inactive expired-batch visibility; zero/negative expired-batch exclusion; generic/manufacturer case-insensitive search; horizon/status/product-name filters; active-only reorder lists; out/low/OK threshold rules; physical/sellable/expired mixed-batch totals; exact product summary counts; and immediate projection changes after `PURCHASE_RECEIPT`, `SALE`, `SALE_RETURN`, `PURCHASE_RETURN`, and a threshold edit.
+- The all-sellable-stock-exhausted while expired stock remains case is covered by the expired-only product: physical and expired stock both remain five while sellable stock is zero and the product is out-of-stock.
+- Existing V1-V6 tests remain enabled and unchanged in behavior; no test, assertion, or Maven setting was weakened or disabled.
+- `./mvnw test`: 87 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- `./mvnw verify`: 87 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+- The isolated GUI acceptance launch was attempted with `PHARMACY_DATA_DIR=/tmp/pharmacy-v7-manual-20260913`; the process reached JavaFX but the execution environment exposed no graphical screen, causing `Screen.getMainScreen()` to fail before a window opened. The process was then stopped, and no click-through GUI acceptance is claimed. The required classification, status, transaction-refresh, and expired-remains scenarios are covered by migrated-SQLite integration tests instead.
+- `git diff --check`: 0 errors after the final documentation update.
+
+### V7-007 — Decisions, limitations, and excluded scope
+
+- Chose no migration because all required data and adequate bounded-query indexes already exist. If a later measured query plan justifies an index while Flyway is still at V5, that migration must be V6, independently of the application phase number.
+- Chose one shared SQL predicate vocabulary rather than a Java reimplementation or two equivalent SQL snippets, guaranteeing POS/dashboard date consistency by construction.
+- Chose a dedicated read repository rather than adding cross-cutting aggregation methods to `BatchRepository` or `ProductRepository`; this keeps their write/transaction responsibilities narrow and mirrors V6 history projections.
+- Chose four set-based dashboard statements—expiry summary, product summary, expiry rows, and product-stock rows—rather than per-row lookups. The two summary statements share one owned connection, both row queries are database-bounded, and every statement is read-only.
+- Counts describe the complete matching operational population, while table filters/caps affect only detail rows. Search/horizon changes intentionally do not relabel the six global summary cards as filtered counts.
+- JavaFX manual acceptance remains unperformed because this execution environment had no screen. This is an environment limitation, not a claimed successful GUI test; the view compiles and the data behavior is covered by real SQLite integration tests.
+- No expiry write-off, damage/adjustment transaction, new movement type, automatic supplier action/order, inventory valuation, Udharo ledger, reports module, RBAC/audit, Nepal invoice/PAN/VAT legal formatting, printing, barcode workflow, CBMS, cloud sync, multi-branch support, scheduled/background/SMS/email alert, or AI forecasting was added.
+- Recommended next phase: V8 — Customer/Supplier Credit and Udharo Ledger. V8 was not started in this task.

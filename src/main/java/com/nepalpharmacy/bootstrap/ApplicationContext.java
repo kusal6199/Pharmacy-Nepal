@@ -1,8 +1,11 @@
 package com.nepalpharmacy.bootstrap;
 
 import com.nepalpharmacy.inventory.BatchRepository;
+import com.nepalpharmacy.inventory.InventoryAlertRepository;
+import com.nepalpharmacy.inventory.InventoryAlertService;
 import com.nepalpharmacy.inventory.InventoryMovementRepository;
 import com.nepalpharmacy.inventory.infrastructure.JdbcBatchRepository;
+import com.nepalpharmacy.inventory.infrastructure.JdbcInventoryAlertRepository;
 import com.nepalpharmacy.inventory.infrastructure.JdbcInventoryMovementRepository;
 import com.nepalpharmacy.party.SupplierRepository;
 import com.nepalpharmacy.party.SupplierService;
@@ -64,6 +67,7 @@ public final class ApplicationContext {
     private final PurchaseReturnService purchaseReturnService;
     private final SaleHistoryService saleHistoryService;
     private final PurchaseHistoryService purchaseHistoryService;
+    private final InventoryAlertService inventoryAlertService;
 
     public ApplicationContext(DatabaseBootstrap database) {
         Objects.requireNonNull(database, "database");
@@ -76,6 +80,8 @@ public final class ApplicationContext {
         BatchRepository batchRepository = new JdbcBatchRepository(connections);
         InventoryMovementRepository movementRepository =
                 new JdbcInventoryMovementRepository(connections);
+        InventoryAlertRepository inventoryAlertRepository =
+                new JdbcInventoryAlertRepository(connections);
         PurchaseRepository purchaseRepository = new JdbcPurchaseRepository(connections);
         PurchaseLineRepository purchaseLineRepository =
                 new JdbcPurchaseLineRepository(connections);
@@ -139,6 +145,7 @@ public final class ApplicationContext {
         purchaseReturnService = new PurchaseReturnService(purchaseReturnEntryRepository);
         saleHistoryService = new SaleHistoryService(saleHistoryRepository);
         purchaseHistoryService = new PurchaseHistoryService(purchaseHistoryRepository);
+        inventoryAlertService = new InventoryAlertService(inventoryAlertRepository);
     }
 
     public ProductService productService() {
@@ -175,5 +182,9 @@ public final class ApplicationContext {
 
     public PurchaseHistoryService purchaseHistoryService() {
         return purchaseHistoryService;
+    }
+
+    public InventoryAlertService inventoryAlertService() {
+        return inventoryAlertService;
     }
 }

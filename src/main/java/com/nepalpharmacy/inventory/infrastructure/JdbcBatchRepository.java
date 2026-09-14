@@ -97,16 +97,15 @@ public final class JdbcBatchRepository implements BatchRepository {
 
     @Override
     public List<BatchStock> findAvailableByProduct(UUID productId, LocalDate asOfDate) {
-        String sql = """
+        String sql = ("""
                 SELECT %s, s.quantity_base_units
                 FROM product_batch b
                 JOIN product p ON p.id = b.product_id AND p.is_active = 1
                 JOIN batch_stock s ON s.batch_id = b.id
                 WHERE b.product_id = ?
-                  AND b.expiry_date >= ?
-                  AND s.quantity_base_units > 0
+                  AND %s
                 ORDER BY b.expiry_date ASC, b.created_at ASC, b.batch_number COLLATE NOCASE
-                """.formatted(COLUMNS);
+                """).formatted(COLUMNS, InventoryStockSql.SELLABLE_ON_DATE);
         List<BatchStock> batches = new ArrayList<>();
         try (Connection connection = connections.open();
              var statement = connection.prepareStatement(sql)) {
