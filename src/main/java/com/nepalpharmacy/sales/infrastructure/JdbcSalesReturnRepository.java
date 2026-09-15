@@ -56,21 +56,23 @@ public final class JdbcSalesReturnRepository implements SalesReturnRepository {
     public void insert(TransactionContext transaction, SalesReturn salesReturn) {
         String sql = """
                 INSERT INTO sales_return (
-                    id, return_number, original_sale_id, return_date, reason,
+                    id, return_number, original_sale_id, customer_id, return_date, reason,
                     refund_method, total_amount_paisa, notes, created_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
         try (var statement = JdbcTransactionContext.connection(transaction).prepareStatement(sql)) {
             statement.setString(1, salesReturn.id().toString());
             statement.setLong(2, salesReturn.returnNumber());
             statement.setString(3, salesReturn.originalSaleId().toString());
-            statement.setString(4, salesReturn.returnDate().toString());
-            statement.setString(5, salesReturn.reason().name());
-            statement.setString(6, salesReturn.refundMethod().name());
-            statement.setLong(7, salesReturn.totalAmountPaisa());
-            setNullableString(statement, 8, salesReturn.notes());
-            statement.setString(9, salesReturn.createdAt().toString());
-            setNullableString(statement, 10,
+            setNullableString(statement, 4,
+                    salesReturn.customerId() == null ? null : salesReturn.customerId().toString());
+            statement.setString(5, salesReturn.returnDate().toString());
+            statement.setString(6, salesReturn.reason().name());
+            statement.setString(7, salesReturn.refundMethod().name());
+            statement.setLong(8, salesReturn.totalAmountPaisa());
+            setNullableString(statement, 9, salesReturn.notes());
+            statement.setString(10, salesReturn.createdAt().toString());
+            setNullableString(statement, 11,
                     salesReturn.createdBy() == null ? null : salesReturn.createdBy().toString());
             statement.executeUpdate();
         } catch (SQLException exception) {

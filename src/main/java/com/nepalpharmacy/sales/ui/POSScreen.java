@@ -2,9 +2,7 @@ package com.nepalpharmacy.sales.ui;
 
 import com.nepalpharmacy.inventory.BatchStock;
 import com.nepalpharmacy.party.Customer;
-import com.nepalpharmacy.party.CustomerDraft;
 import com.nepalpharmacy.party.CustomerService;
-import com.nepalpharmacy.party.CustomerValidationException;
 import com.nepalpharmacy.product.Product;
 import com.nepalpharmacy.product.ProductService;
 import com.nepalpharmacy.sales.PaymentMethod;
@@ -29,7 +27,6 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
-import javafx.scene.control.TitledPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -46,8 +43,8 @@ import java.util.stream.Collectors;
 public final class POSScreen {
 
     private final SaleService sales;
-    private final CustomerService customers;
     private final ProductService products;
+    private final CustomerSelectionPane customerSelection;
 
     private final VBox root = new VBox();
     private final DatePicker saleDate = new DatePicker(LocalDate.now());
@@ -60,14 +57,8 @@ public final class POSScreen {
     private final TableView<DraftLine> lineTable = new TableView<>(draftLines);
     private final Label runningTotal = new Label("Total: NPR 0.00");
     private final ComboBox<PaymentMethod> paymentMethod = new ComboBox<>();
-    private final ComboBox<Customer> customer = new ComboBox<>();
-    private final VBox creditCustomerPanel = new VBox();
     private final Label feedback = new Label();
     private final TextArea invoiceView = new TextArea();
-
-    private final TextField customerName = new TextField();
-    private final TextField customerPhone = new TextField();
-    private final TextField customerAddress = new TextField();
 
     public POSScreen(
             SaleService sales,
@@ -75,11 +66,11 @@ public final class POSScreen {
             ProductService products
     ) {
         this.sales = sales;
-        this.customers = customers;
         this.products = products;
+        customerSelection = new CustomerSelectionPane(
+                customers, "Select customer for Udharo", this::showSuccess, this::showError);
         configureView();
         refreshProducts("");
-        refreshCustomers();
     }
 
     public Parent view() {
@@ -190,55 +181,15 @@ public final class POSScreen {
         paymentMethod.setMaxWidth(Double.MAX_VALUE);
         paymentMethod.setOnAction(event -> updateCustomerVisibility());
 
-        configureCustomerConverter();
-        customer.setPromptText("Select customer for Udharo");
-        customer.setMaxWidth(Double.MAX_VALUE);
-
-        GridPane customerFields = new GridPane();
-        customerFields.setHgap(10);
-        customerFields.setVgap(10);
-        customerFields.addRow(0, label("Customer *"), customer);
-        GridPane.setHgrow(customer, Priority.ALWAYS);
-
-        TitledPane addCustomer = createCustomerForm();
-        creditCustomerPanel.getChildren().setAll(customerFields, addCustomer);
-        creditCustomerPanel.setSpacing(10);
-
         GridPane payment = new GridPane();
         payment.setHgap(10);
         payment.setVgap(10);
         payment.addRow(0, label("Payment method *"), paymentMethod);
         GridPane.setHgrow(paymentMethod, Priority.ALWAYS);
 
-        VBox body = new VBox(12, payment, creditCustomerPanel);
+        VBox body = new VBox(12, payment, customerSelection.view());
         updateCustomerVisibility();
         return panel("Payment", body);
-    }
-
-    private TitledPane createCustomerForm() {
-        customerName.setPromptText("Required");
-        customerPhone.setPromptText("Optional");
-        customerAddress.setPromptText("Optional");
-
-        GridPane fields = new GridPane();
-        fields.setHgap(10);
-        fields.setVgap(10);
-        fields.addRow(0, label("Name *"), customerName, label("Phone"), customerPhone);
-        fields.addRow(1, label("Address"), customerAddress);
-        GridPane.setHgrow(customerName, Priority.ALWAYS);
-        GridPane.setHgrow(customerAddress, Priority.ALWAYS);
-
-        Button add = new Button("Add and select customer");
-        add.getStyleClass().add("secondary-button");
-        add.setOnAction(event -> addCustomer());
-        HBox actions = new HBox(add);
-        actions.setAlignment(Pos.CENTER_RIGHT);
-
-        VBox body = new VBox(12, fields, actions);
-        body.setPadding(new Insets(12));
-        TitledPane pane = new TitledPane("Need a new customer? Add one here", body);
-        pane.setExpanded(false);
-        return pane;
     }
 
     private HBox createSaveBar() {
@@ -335,51 +286,14 @@ public final class POSScreen {
 
     private void updateCustomerVisibility() {
         boolean credit = paymentMethod.getValue() == PaymentMethod.CREDIT;
-        creditCustomerPanel.setVisible(credit);
-        creditCustomerPanel.setManaged(credit);
-        if (!credit) {
-            customer.setValue(null);
-        }
-    }
-
-    private void addCustomer() {
-        clearFeedbackStyle();
-        try {
-            Customer created = customers.create(new CustomerDraft(
-                    customerName.getText(), customerPhone.getText(), customerAddress.getText(), true));
-            refreshCustomers();
-            customer.setValue(created);
-            customerName.clear();
-            customerPhone.clear();
-            customerAddress.clear();
-            showSuccess("Added and selected customer “" + created.name() + "”.");
-        } catch (CustomerValidationException exception) {
-            showError(joinErrors(exception.fieldErrors().values()));
-        } catch (RuntimeException exception) {
-            showError("The customer could not be added. " + exception.getMessage());
-        }
-    }
-
-    private void refreshCustomers() {
-        try {
-            Customer selected = customer.getValue();
-            customer.setItems(FXCollections.observableArrayList(customers.findAllActive()));
-            if (selected != null) {
-                customer.getItems().stream()
-                        .filter(item -> item.id().equals(selected.id()))
-                        .findFirst()
-                        .ifPresent(customer::setValue);
-            }
-        } catch (RuntimeException exception) {
-            showError("Customers could not be loaded. " + exception.getMessage());
-        }
+        customerSelection.setShown(credit);
     }
 
     private void completeSale() {
         clearFeedbackStyle();
         try {
             PaymentMethod method = paymentMethod.getValue();
-            Customer selectedCustomer = customer.getValue();
+            Customer selectedCustomer = customerSelection.selectedCustomer();
             SaleReceipt receipt = sales.record(new SaleDraft(
                     method == PaymentMethod.CREDIT && selectedCustomer != null
                             ? selectedCustomer.id() : null,
@@ -452,21 +366,6 @@ public final class POSScreen {
 
             @Override
             public BatchStock fromString(String value) {
-                return null;
-            }
-        });
-    }
-
-    private void configureCustomerConverter() {
-        customer.setConverter(new StringConverter<>() {
-            @Override
-            public String toString(Customer value) {
-                return value == null ? "" : value.name()
-                        + (value.phone() == null ? "" : " · " + value.phone());
-            }
-
-            @Override
-            public Customer fromString(String value) {
                 return null;
             }
         });

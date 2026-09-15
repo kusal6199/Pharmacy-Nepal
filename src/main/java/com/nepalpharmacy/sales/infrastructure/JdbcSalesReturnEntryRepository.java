@@ -5,6 +5,7 @@ import com.nepalpharmacy.inventory.BatchRepository;
 import com.nepalpharmacy.inventory.InventoryMovement;
 import com.nepalpharmacy.inventory.InventoryMovementRepository;
 import com.nepalpharmacy.inventory.InventoryMovementType;
+import com.nepalpharmacy.party.CustomerRepository;
 import com.nepalpharmacy.product.Product;
 import com.nepalpharmacy.product.ProductRepository;
 import com.nepalpharmacy.sales.Sale;
@@ -43,6 +44,7 @@ public final class JdbcSalesReturnEntryRepository implements SalesReturnEntryRep
     private final SaleLineRepository saleLines;
     private final BatchRepository batches;
     private final ProductRepository products;
+    private final CustomerRepository customers;
     private final SalesReturnRepository returns;
     private final SalesReturnLineRepository returnLines;
     private final InventoryMovementRepository movements;
@@ -53,6 +55,7 @@ public final class JdbcSalesReturnEntryRepository implements SalesReturnEntryRep
             SaleLineRepository saleLines,
             BatchRepository batches,
             ProductRepository products,
+            CustomerRepository customers,
             SalesReturnRepository returns,
             SalesReturnLineRepository returnLines,
             InventoryMovementRepository movements
@@ -62,6 +65,7 @@ public final class JdbcSalesReturnEntryRepository implements SalesReturnEntryRep
         this.saleLines = Objects.requireNonNull(saleLines, "saleLines");
         this.batches = Objects.requireNonNull(batches, "batches");
         this.products = Objects.requireNonNull(products, "products");
+        this.customers = Objects.requireNonNull(customers, "customers");
         this.returns = Objects.requireNonNull(returns, "returns");
         this.returnLines = Objects.requireNonNull(returnLines, "returnLines");
         this.movements = Objects.requireNonNull(movements, "movements");
@@ -100,6 +104,14 @@ public final class JdbcSalesReturnEntryRepository implements SalesReturnEntryRep
         Sale originalSale = sales.findById(transaction, draft.originalSaleId())
                 .orElseThrow(() -> validationError(
                         "originalSale", "Original sale no longer exists."));
+        if (draft.customerId() != null) {
+            var returnCustomer = customers.findById(transaction, draft.customerId())
+                    .orElseThrow(() -> validationError(
+                            "customer", "Selected return customer no longer exists."));
+            if (!returnCustomer.active()) {
+                throw validationError("customer", "Selected return customer must be active.");
+            }
+        }
 
         Map<UUID, SalesReturnLineAvailability> availability = new LinkedHashMap<>();
         Map<UUID, SalesReturnLineDraft> pricedByOriginalLine = new LinkedHashMap<>();
@@ -128,14 +140,15 @@ public final class JdbcSalesReturnEntryRepository implements SalesReturnEntryRep
                 .map(line -> pricedByOriginalLine.getOrDefault(line.originalSaleLineId(), line))
                 .toList();
         SalesReturnDraft pricedDraft = new SalesReturnDraft(
-                draft.originalSaleId(), draft.returnDate(), draft.reason(),
+                draft.originalSaleId(), draft.customerId(), draft.returnDate(), draft.reason(),
                 draft.refundMethod(), draft.notes(), pricedLines, draft.createdBy());
         SalesReturnValidator.validate(pricedDraft, originalSale, availability);
 
         long returnNumber = returns.nextReturnNumber(transaction);
         UUID returnId = UUID.randomUUID();
         SalesReturn salesReturn = new SalesReturn(
-                returnId, returnNumber, originalSale.id(), pricedDraft.returnDate(),
+                returnId, returnNumber, originalSale.id(), pricedDraft.customerId(),
+                pricedDraft.returnDate(),
                 pricedDraft.reason(), pricedDraft.refundMethod(),
                 SalesReturnValidator.totalPaisa(pricedDraft), pricedDraft.notes(),
                 createdAt, pricedDraft.createdBy());

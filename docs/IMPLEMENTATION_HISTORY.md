@@ -1,8 +1,8 @@
 # Pharmacy MVP implementation history
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 Current application phase: V8
-Current database schema: V6
+Current database schema: V8
 Current completed vertical slices: product master, purchase entry, POS/sales, sales/purchase returns, persisted document history, expiry/low-stock operations, and customer/supplier Udharo credit accounts
 
 ## Purpose and maintenance rule
@@ -2263,3 +2263,169 @@ Purpose: close the Udharo ledger gap that allowed a return against an unpaid Cre
 - Kept this as a V8 behavioral follow-up because persisted data and schema already contained every required fact.
 - Kept the existing derived-ledger model: transaction headers remain the source of truth, and no duplicate posting or mutable balance was introduced.
 - Did not add purchasing, inventory, POS pricing, report, tax, authentication, or other feature work. The recommended next application phase remains V9; it was not started here.
+
+---
+
+## V8 follow-up 2 — Return-time store credit and source-date integrity
+
+Date: 2026-09-15
+Application phase: V8, Flyway schema: V7
+Migration: `src/main/resources/db/migration/V7__add_sales_return_customer.sql`
+Purpose: let a customerless Cash/QR sale be refunded legitimately as customer store credit without mutating the sale, and prevent sales or purchase returns from predating their source transactions.
+
+### V8-F2-001 — Investigation and files changed
+
+- Read and checked the complete V5, V6, V8, and first V8 follow-up entries before implementation. The current schema was V6, making V7 the next Flyway number independently of the V8 application-phase label.
+- Confirmed from `V5__create_returns.sql` that `sales_return` had no customer field and that a nullable `TEXT REFERENCES customer(id)` column requires no existing-row transformation, non-null/default synthesis, or `CHECK` replacement. A SQLite table rebuild was therefore unnecessary.
+- Confirmed `SalesReturnValidator` and `PurchaseReturnValidator` had no comparison between return date and the loaded original transaction date. No existing test covered that invariant, so both validators required a fix.
+- Added `src/main/resources/db/migration/V7__add_sales_return_customer.sql`.
+- Added `src/main/java/com/nepalpharmacy/sales/ui/CustomerSelectionPane.java` by extracting the active-customer selector, display converter, refresh, and inline create-and-select workflow that previously lived only inside `POSScreen`.
+- Added `src/test/java/com/nepalpharmacy/sales/infrastructure/SalesReturnCustomerMigrationTest.java`.
+- Modified sales-return domain/persistence files: `SalesReturn.java`, `SalesReturnDraft.java`, `SalesReturnValidator.java`, `sales/infrastructure/JdbcSalesReturnEntryRepository.java`, and `sales/infrastructure/JdbcSalesReturnRepository.java`.
+- Modified `credit/infrastructure/JdbcCustomerAccountRepository.java` and `purchasing/PurchaseReturnValidator.java`.
+- Modified JavaFX/composition files: `sales/ui/POSScreen.java`, `sales/ui/SalesReturnScreen.java`, `bootstrap/ApplicationContext.java`, and `PharmacyApplication.java`.
+- Modified tests: `DatabaseBootstrapTest.java`, `CreditMigrationTest.java`, `PurchaseReturnValidatorTest.java`, `SalesReturnValidatorTest.java`, and `JdbcSalesReturnEntryRepositoryTest.java`.
+- Modified `README.md`, `docs/ARCHITECTURE.md`, and this history file. The current-history header was corrected from schema V6 to V7 and its date to 2026-09-15; prior phase entries remain intact as historical records.
+- Added no dependency, plugin, DI framework, CSS rule, inventory movement/type/view change, stored account balance, or editable original transaction.
+
+### V8-F2-002 — Database effect
+
+- V7 performs exactly one statement: `ALTER TABLE sales_return ADD COLUMN customer_id TEXT REFERENCES customer(id)`. The new field is nullable and has no default or `CHECK`; existing return rows therefore retain all values and receive null for this new field.
+- The foreign key prevents a return from naming a nonexistent customer. No backfill is attempted because the customer for a historical walk-in return cannot be inferred honestly.
+- The original `sale.customer_id` is never updated or backfilled. A return-time customer is stored only on the new `sales_return.customer_id` field.
+- No index was added: the derived event projection already scans qualifying return events and resolves the effective party through `COALESCE`; a simple index on only the nullable override would not serve that expression. The existing original-sale index remains available for its join.
+- Fresh databases now apply seven migrations. A schema-V6 database applies only V7; a schema-V5 database applies V6 and V7 sequentially. V1 through V6 were not edited.
+- Migration coverage proves V6-to-V7 execution count, null/default shape, the customer foreign key, preservation of a pre-V7 walk-in sale and return, successful valid customer linkage, rejection of an orphan customer ID, and a clean `PRAGMA foreign_key_check`.
+
+### V8-F2-003 — Customer, refund, and ledger behavior
+
+- `SalesReturn` and `SalesReturnDraft` now carry nullable return-level `customerId`. Normalization preserves it unchanged.
+- For a Credit refund, validation accepts either the original sale customer or a return-level customer. `Credit refund requires a customer account.` is raised only when both are absent.
+- A return-level customer is allowed only for a Credit refund. If the original sale already has a customer, a conflicting return-level customer is rejected so store credit cannot be redirected away from the transaction owner.
+- The entry coordinator resolves any supplied return customer through `CustomerRepository` within the established return transaction and requires that customer to remain active before persisting the return.
+- The customer subledger now assigns a Credit sales-return event to `COALESCE(sales_return.customer_id, sale.customer_id)`. A walk-in Cash/QR sale can create negative customer balance/store credit through the selected return customer, while every existing Credit-sale return continues to fall back to its immutable original customer.
+- The earlier original-payment-aware rule remains unchanged: an original Credit sale still permits only a Credit refund; Cash or QR remains rejected before any return or stock write.
+- All amounts remain integer paisa, inventory remains movement-derived, and exact return pricing still comes from the immutable original sale line.
+
+### V8-F2-004 — Return-date behavior
+
+- `SalesReturnValidator` now rejects `returnDate < originalSale.saleDate()` with `Return date cannot be before the original sale date.`
+- `PurchaseReturnValidator` now rejects `returnDate < originalPurchase.purchaseDate()` with `Return date cannot be before the original purchase date.`
+- Both comparisons run only after the actual source header is loaded by the existing atomic coordinator. A return dated on the same day or any later day remains valid.
+- The screens continue to collect dates only; neither JavaFX screen duplicates the chronological business rule.
+
+### V8-F2-005 — UI, repository, and architecture effect
+
+- `CustomerSelectionPane` is the single implementation of active-customer loading, formatted selection, and inline `CustomerService.create(...)` behavior. POS now consumes this extracted component with no intended functional change.
+- Sales Return receives the same component and shows it only when the loaded sale has no customer and the selected refund method is Credit. Switching away from Credit, loading another source that already owns a customer, or clearing the source hides the panel and clears its selection.
+- A newly created customer is refreshed into the same active list and selected immediately. The saved draft carries that customer's UUID; confirmation and later account reads use the persisted return.
+- `PharmacyApplication` supplies the existing `CustomerService` to both ordinary and history-preloaded Sales Return screens. `ApplicationContext` remains the sole JDBC/service composition point and now supplies the existing `CustomerRepository` interface to the return coordinator for transactional revalidation.
+- Screens still depend only on services, the coordinator still depends on narrow interfaces, JDBC remains under `infrastructure`, and `party`/`credit` gain no dependency back on sales UI.
+- `JdbcSalesReturnRepository` adds `customer_id` to its existing header insert. No update/delete method was added. Header, lines, return number, inventory movements, and the optional customer link continue to commit or roll back together.
+
+### V8-F2-006 — Tests and verification
+
+- Confirmed the untouched starting baseline: 124 tests passed with 0 failures, 0 errors, and 0 skipped.
+- Added sales validation coverage for a return-level customer on a walk-in Credit refund, no-customer rejection, unchanged original-Credit behavior, pre-sale-date rejection, and same-day/later acceptance.
+- Added purchase validation coverage for pre-purchase-date rejection and same-day/later acceptance.
+- Expanded the real-SQLite sales-return coordinator test to prove a walk-in Cash sale can be refunded to Credit for a selected return customer, exact batch stock is restored, the return stores that customer, the original sale remains null/unchanged, and the selected customer's derived balance becomes NPR 1.50 store credit. The pre-existing missing-customer and Credit-sale fallback tests remain enabled.
+- Added the focused V7 migration test and updated fresh/upgrade migration counts. The V5-to-latest credit upgrade still proves preserved rows and now also proves its historical sales return receives a null return-level customer.
+- No pre-existing test or assertion was removed, disabled, or weakened. Six new tests bring the suite from 124 to 130.
+- `./mvnw test`: 130 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- `./mvnw verify`: 130 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+- Surefire XML aggregate after both Maven gates: 130 tests, 0 failures, 0 errors, 0 skipped.
+- `git diff --check`: completed with no whitespace errors after the final history edit.
+
+### V8-F2-007 — Decisions, limitations, and excluded scope
+
+- Chose the return-level customer override plus original-sale fallback because it represents the actual store-credit recipient without rewriting an immutable sale or duplicating a financial posting.
+- Chose extraction of the existing inline POS flow over copying its fields and handlers into Sales Return. Both screens now share one active-customer/create-and-select component.
+- Kept validation at both useful boundaries: UI selection prevents ordinary cashier omission, while the transaction coordinator rechecks source payment/date/customer state before any write.
+- JavaFX click-through is not claimed from this headless execution environment; UI construction compiles, service/domain decisions and persistence are covered by automated tests, and the workflow is ready for manual application verification.
+- Excluded customer editing, retroactive sale-party reassignment, general-ledger posting, refund vouchers, expiry/stock changes beyond the existing return movement, reports, authentication/RBAC, audit redesign, tax/legal invoice changes, cloud sync, and multi-branch behavior. The next application phase remains V9 and was not started.
+
+---
+
+## V8 follow-up 3 — Customer/supplier credit cash settlement
+
+Date: 2026-09-15
+Application phase: V8, Flyway schema: V8
+Migration: `src/main/resources/db/migration/V8__add_credit_payout_settlements.sql`
+Purpose: complete both missing financial directions for settling a negative party-credit balance without creating another return, altering a source transaction, or affecting inventory.
+
+### V8-F3-001 — Confirmed gap and files changed
+
+- Confirmed that `PAYMENT_RECEIVED` could not represent money paid by the pharmacy to a customer: it subtracts from the customer balance and would make an existing negative customer-credit balance more negative. The new event needs the opposite signed effect.
+- Confirmed the symmetric supplier gap: `PAYMENT_MADE` reduces a positive payable, but could not represent Cash/QR received from a supplier against a negative supplier-credit balance.
+- Added the V8 migration `src/main/resources/db/migration/V8__add_credit_payout_settlements.sql`. Migrations V1 through V7 were not edited.
+- Modified credit domain/service files: `AccountBalancePresentation.java`, `AccountEntryType.java`, `AccountEntryValidator.java`, `CustomerAccountService.java`, and `SupplierAccountService.java`.
+- Modified credit persistence files: `infrastructure/JdbcCustomerAccountRepository.java` and `infrastructure/JdbcSupplierAccountRepository.java`. The narrow insert-only account-entry repository interfaces and their JDBC writers did not need new methods.
+- Modified the existing combined JavaFX `credit/ui/CreditAccountsScreen.java`; no second payout/refund screen, new route, CSS rule, service, repository, or composition wiring was added.
+- Added `AccountEntryOptionsTest.java` and `infrastructure/CreditSettlementMigrationTest.java`.
+- Expanded `AccountEntryValidatorTest.java`, `AccountBalancePresentationTest.java`, `infrastructure/JdbcCreditAccountRepositoryTest.java`, and `sales/infrastructure/JdbcSalesReturnEntryRepositoryTest.java`.
+- Adjusted migration-count assertions in `DatabaseBootstrapTest.java` and `CreditMigrationTest.java`. Kept `SalesReturnCustomerMigrationTest.java` focused on V6-to-V7 by explicitly targeting schema V7 for its second migration leg.
+- Updated `README.md`, `docs/ARCHITECTURE.md`, this append-only history, and the current-history schema header. Earlier V8 entries remain historical and were not rewritten.
+
+### V8-F3-002 — V7-to-V8 database migration
+
+- V8 safely rebuilds `customer_account_entry` through `customer_account_entry_next`, copying all ten existing fields exactly before drop/rename. Its checked manual types are now `OPENING_BALANCE`, `PAYMENT_RECEIVED`, and `CREDIT_PAYOUT`.
+- V8 performs the parallel rebuild for `supplier_account_entry`; its types are now `OPENING_BALANCE`, `PAYMENT_MADE`, and `CREDIT_REFUND_RECEIVED`.
+- Both rebuilt tables retain their party foreign key, UUID-text primary key, ISO business date and creation timestamp, positive integer-paisa amount, optional 160-character reference, optional 500-character notes, and nullable creator metadata.
+- Opening balance still requires a null payment method. Every payment, payout, or refund-received event explicitly requires non-null `CASH` or `QR`; `CREDIT` remains invalid. The explicit `IS NOT NULL` clauses avoid SQLite's rule that a null-valued `CHECK` expression otherwise passes.
+- Before either rebuild begins, V8 runs fail-closed preflight guards for legacy `PAYMENT_RECEIVED` or `PAYMENT_MADE` rows whose payment method is null. V6's original SQLite `CHECK` could admit that ambiguous state because a null `CHECK` result passes; V8 refuses to guess Cash versus QR and aborts with a repair-specific guard-table/column message while leaving the database at V7 with its rows and schema unchanged.
+- Recreated `ux_customer_account_opening`, `idx_customer_account_party_date`, `ux_supplier_account_opening`, and `idx_supplier_account_party_date`. The rebuild leaves no `_next` table behind and adds no stored balance column.
+- A fresh database applies V1 through V8. A conforming schema-V7 database applies exactly V8; a schema-V5 database applies V6, V7, and V8. Existing account rows, customers, suppliers, sales, sales returns including `sales_return.customer_id`, purchases, purchase returns, references, notes, timestamps, and creator IDs are preserved.
+
+### V8-F3-003 — Customer credit payout semantics and validation
+
+- Added the canonical immutable event `CREDIT_PAYOUT`, displayed to cashiers as `Pay out customer credit` and in ledger activity as `Customer credit payout`.
+- Its customer-ledger delta is `+amount`: a balance of -NPR 400 followed by a payout of NPR 100 becomes -NPR 300; a later NPR 300 payout produces zero/`Settled`. Negative balances are never clamped.
+- A payout requires an existing customer, positive integer-paisa amount, current derived customer balance below zero, and Cash or QR/digital. Partial and exact full payouts are valid.
+- A payout above the available credit is rejected with the exact available NPR magnitude; payouts at zero or positive balance, null/Credit methods, zero/negative amounts, and supplier-only entry types are rejected.
+- The maximum comparison does not negate the current negative balance, so `Long.MIN_VALUE` cannot overflow during validation. Existing reference/notes limits and normalization remain active.
+- A missing user reference renders a readable `Cash payout` or `QR / digital payout` fallback rather than a UUID. A supplied reference and notes remain unchanged.
+
+### V8-F3-004 — Supplier credit refund semantics and validation
+
+- Added the canonical immutable event `CREDIT_REFUND_RECEIVED`, displayed as `Receive supplier credit refund` and in activity as `Supplier credit refund received`.
+- Its supplier-ledger delta is `+amount`: supplier credit -NPR 500 can be received as NPR 200 and NPR 300, yielding -NPR 300 and then zero/`Settled`.
+- The event requires an existing supplier, a negative current derived balance, a positive amount no greater than the available supplier credit, and Cash or QR/digital. Full and partial receipts are valid; null/Credit methods, zero/negative amounts, zero/positive balances, over-refunds, and customer-only types are rejected.
+- Missing references use `Cash refund received` or `QR / digital refund received`; supplied reference/notes are retained. `LEGACY_UNSPECIFIED` purchase and purchase-return events remain excluded from the ledger exactly as before.
+
+### V8-F3-005 — Transaction, source-document, and inventory safety
+
+- Both services continue using the one shared `TransactionRunner`. Party revalidation, current derived-balance read, opening-balance check, domain validation, and immutable insert use the same transaction and connection.
+- Repository sign projections now enumerate each manual event explicitly instead of treating every non-opening event as negative. Java running totals continue to use `Math.addExact`, deterministic ordering is unchanged, and balances remain derived rather than stored.
+- Forced insert-after-write failures for both new event types prove the whole account-entry transaction rolls back and leaves the negative credit available. Validation failures insert no settlement row.
+- No update/delete method was added. A payout/refund receipt appends exactly one manual financial row and never edits the originating sale, sales return, purchase, purchase return, line, party, or amount/classification.
+- Neither event creates an `inventory_movement` or changes `batch_stock`, FEFO, expiry, low-stock logic, movement types, or the startup movement-reference integrity check.
+- The V7 effective return-owner rule remains `COALESCE(sales_return.customer_id, sale.customer_id)`. Return-time selection/creation for a walk-in store-credit refund, Credit-sale refund restrictions, conflicting-customer protection, source-date rules, and original-customer fallback remain unchanged.
+
+### V8-F3-006 — JavaFX behavior and labels
+
+- Customer and supplier entry panels now use neutral `Record ... account entry` headings. `AccountEntryType` owns readable display text, while JDBC continues persisting stable enum names through `name()`.
+- Selecting a positive customer offers Opening balance plus Payment received; selecting a negative customer offers Opening balance plus Pay out customer credit; at zero only the existing opening-balance path remains. Supplier choices mirror this with Payment made versus Receive supplier credit refund. Domain validation remains authoritative regardless of UI state.
+- When a settlement action is available it becomes the default selection. Its payment-method selector enables and offers Cash or QR only; Opening balance disables and clears that selector. The prompt now reads `Required for settlement`.
+- Context hints show the exact outstanding balance or available customer/supplier credit. Ledger amount columns were renamed to the direction-neutral `Balance increase` and `Balance decrease`, avoiding a misleading `Charge` label on a payout.
+- After a full settlement, an account may no longer match the current Credit filter. The screen now reloads and keeps that account detail/ledger open, shows its settled state, and explains why it is absent from the filtered list instead of silently losing the successful result.
+
+### V8-F3-007 — Automated tests and exact verification
+
+- Confirmed the untouched starting baseline: 130 tests passed with 0 failures, 0 errors, and 0 skipped.
+- Added eight account-entry validator tests, three presentation/label tests, two service option-policy tests, three migration tests, six credit JDBC/service tests, two sales-return integration tests, and one focused sales-return customer-conflict validator test: 25 new tests bring the suite to 155.
+- Migration coverage performs a real V7-to-V8 upgrade and compares every column of seeded party, source-transaction, return-owner, and account-entry rows before/after. It also proves the new Cash/QR types, null/Credit/cross-party/money/text/FK constraints, unique openings, all four indexes, `_next` cleanup, and a clean `PRAGMA foreign_key_check`. A separate adversarial V7 fixture proves ambiguous null-method customer and supplier payments both stop V8 before any schema/data change and leave Flyway successfully at V7.
+- Customer/supplier persistence tests cover partial/full Cash and QR settlement, signed deltas, running balances, activity and fallback/user references, Credit-to-Settled filter movement, stable rereads, invalid no-row outcomes, rollback after a deliberately failed insert, and an exact one-step supplier Cash refund that reaches zero with one immutable entry.
+- The primary real-SQLite workflow creates Ram, receives ten units, records a customerless Cash walk-in sale of five units at NPR 200 each (NPR 1,000), returns two units as NPR 400 Credit owned by Ram, and pays that full NPR 400 in Cash five days later. It proves the -40,000-paisa balance becomes zero; the sale, return, stock, and complete inventory-movement snapshot do not change during payout; and both `Sales return credit` and `Customer credit payout` remain in the ledger.
+- Regression coverage explicitly preserves a walk-in QR sale whose Credit return selects a customer, rejects a return customer that conflicts with an original sale customer, and keeps all prior original-payment-aware return, V7 ownership/fallback, source-date, transaction, stock, expiry/FEFO, alert, history, and migration tests enabled without weakened assertions.
+- `./mvnw test`: 155 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- `./mvnw verify`: 155 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+- Surefire XML aggregate after the Maven gates: 155 tests, 0 failures, 0 errors, 0 skipped.
+- `git diff --check`: completed with no whitespace errors after the final documentation edit.
+
+### V8-F3-008 — Manual status, decisions, and excluded scope
+
+- A JavaFX availability smoke attempt used isolated `PHARMACY_DATA_DIR=/private/tmp/pharmacy-v8-f3-manual-20260915`. The process reached JavaFX startup but this execution environment exposed no screen; rendering stopped in `Screen.getMainScreen()` with `ArrayIndexOutOfBoundsException`. The process was stopped, so no GUI click-through or navigation/restart acceptance is claimed.
+- The behavior is instead proven through migrated temporary-SQLite integration tests plus compilation of the JavaFX screen and its service-facing policy.
+- Kept this as corrective completion of application phase V8 while advancing only the Flyway schema from V7 to V8. V9 was not started.
+- Excluded general ledger/double-entry accounting, chart of accounts, cash book, P&L/balance sheet, tax/VAT/PAN/CBMS work, receipt printing, source edits, reversal/edit/delete workflows, due dates/aging/interest/credit limits, split payments, stock adjustments/write-offs, cancellation/void, authentication/RBAC/audit redesign, reports, barcode work, scheduled notifications, cloud/synchronization, and multi-branch behavior.
+- Recommended next phase remains V9 — Core Operational & Financial Reports.

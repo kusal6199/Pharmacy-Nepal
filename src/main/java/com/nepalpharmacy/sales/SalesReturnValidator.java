@@ -52,8 +52,22 @@ public final class SalesReturnValidator {
             errors.put("refundMethod", UNPAID_SALE_REFUND_MESSAGE);
         }
         if (draft != null && draft.refundMethod() == PaymentMethod.CREDIT
-                && originalSale != null && originalSale.customerId() == null) {
+                && originalSale != null && originalSale.customerId() == null
+                && draft.customerId() == null) {
             errors.put("refundMethod", "Credit refund requires a customer account.");
+        }
+        if (draft != null && draft.customerId() != null
+                && draft.refundMethod() != PaymentMethod.CREDIT) {
+            errors.put("customer", "A return customer can only be selected for a Credit refund.");
+        }
+        if (draft != null && draft.customerId() != null && originalSale != null
+                && originalSale.customerId() != null
+                && !draft.customerId().equals(originalSale.customerId())) {
+            errors.put("customer", "Return customer must match the original sale customer.");
+        }
+        if (draft != null && draft.returnDate() != null && originalSale != null
+                && draft.returnDate().isBefore(originalSale.saleDate())) {
+            errors.put("returnDate", "Return date cannot be before the original sale date.");
         }
         Map<UUID, Long> requestedByOriginalLine = new LinkedHashMap<>();
         if (draft != null && draft.lines() != null) {

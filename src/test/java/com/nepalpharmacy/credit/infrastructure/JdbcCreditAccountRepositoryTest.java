@@ -2,6 +2,7 @@ package com.nepalpharmacy.credit.infrastructure;
 
 import com.nepalpharmacy.bootstrap.DatabaseBootstrap;
 import com.nepalpharmacy.credit.AccountBalanceFilter;
+import com.nepalpharmacy.credit.AccountBalancePresentation;
 import com.nepalpharmacy.credit.AccountEntry;
 import com.nepalpharmacy.credit.AccountEntryDraft;
 import com.nepalpharmacy.credit.AccountEntryType;
@@ -10,6 +11,7 @@ import com.nepalpharmacy.credit.CustomerAccountDetail;
 import com.nepalpharmacy.credit.CustomerAccountEntryRepository;
 import com.nepalpharmacy.credit.CustomerAccountService;
 import com.nepalpharmacy.credit.SupplierAccountDetail;
+import com.nepalpharmacy.credit.SupplierAccountEntryRepository;
 import com.nepalpharmacy.credit.SupplierAccountService;
 import com.nepalpharmacy.party.CustomerDraft;
 import com.nepalpharmacy.party.CustomerService;
@@ -128,6 +130,228 @@ class JdbcCreditAccountRepositoryTest {
         assertEquals("Supplier invoice SUP-52", detail.entries().get(1).reference());
         assertEquals("Purchase return #7", detail.entries().get(3).reference());
         assertEquals(0, detail.summary().balancePaisa());
+    }
+
+    @Test
+    void customerCreditPayoutPartiallyThenFullySettlesAndReloadsExactly() throws Exception {
+        insertSale("customer-payout-source", customerId, "CASH", 100_000);
+        insertSalesReturn("customer-payout-credit", "customer-payout-source",
+                "CREDIT", 40_000, 81);
+
+        CustomerAccountDetail credited = customerService.findDetail(customerId).orElseThrow();
+        assertEquals(-40_000, credited.summary().balancePaisa());
+        assertTrue(customerService.search(null, AccountBalanceFilter.CREDIT).accounts().stream()
+                .anyMatch(row -> row.customerId().equals(customerId)
+                        && row.balancePaisa() == -40_000));
+
+        customerService.record(entry(customerId, DAY_1.plusDays(2),
+                AccountEntryType.CREDIT_PAYOUT, 10_000, PaymentMethod.CASH,
+                null));
+
+        CustomerAccountDetail partial = customerService.findDetail(customerId).orElseThrow();
+        assertEquals(-30_000, partial.summary().balancePaisa());
+        assertEquals(List.of(-40_000L, -30_000L),
+                partial.entries().stream().map(row -> row.runningBalancePaisa()).toList());
+        assertTrue(customerService.search(null, AccountBalanceFilter.CREDIT).accounts().stream()
+                .anyMatch(row -> row.customerId().equals(customerId)
+                        && row.balancePaisa() == -30_000));
+
+        customerService.record(entry(customerId, DAY_1.plusDays(3),
+                AccountEntryType.CREDIT_PAYOUT, 30_000, PaymentMethod.QR,
+                "PAYOUT-QR-300"));
+
+        CustomerAccountDetail settled = customerService.findDetail(customerId).orElseThrow();
+        CustomerAccountDetail reloaded = customerService.findDetail(customerId).orElseThrow();
+        assertEquals(0, settled.summary().balancePaisa());
+        assertEquals(List.of(-40_000L, -30_000L, 0L),
+                settled.entries().stream().map(row -> row.runningBalancePaisa()).toList());
+        assertEquals(List.of("Sales return credit", "Customer credit payout",
+                        "Customer credit payout"),
+                settled.entries().stream().map(row -> row.activity()).toList());
+        assertEquals(List.of(0L, 10_000L, 30_000L),
+                settled.entries().stream().map(row -> row.increasePaisa()).toList());
+        assertEquals(List.of(40_000L, 0L, 0L),
+                settled.entries().stream().map(row -> row.decreasePaisa()).toList());
+        assertEquals(List.of("Sales return #81", "Cash payout", "PAYOUT-QR-300"),
+                settled.entries().stream().map(row -> row.reference()).toList());
+        assertEquals(settled.entries(), reloaded.entries());
+        assertEquals(2, scalar("SELECT COUNT(*) FROM customer_account_entry "
+                + "WHERE entry_type = 'CREDIT_PAYOUT'"));
+        assertFalse(customerService.search(null, AccountBalanceFilter.CREDIT).accounts().stream()
+                .anyMatch(row -> row.customerId().equals(customerId)));
+        assertTrue(customerService.search(null, AccountBalanceFilter.SETTLED).accounts().stream()
+                .anyMatch(row -> row.customerId().equals(customerId)
+                        && row.balancePaisa() == 0));
+    }
+
+    @Test
+    void supplierCreditRefundPartiallyThenFullySettlesAndReloadsExactly() throws Exception {
+        insertPurchase("supplier-refund-source", supplierId, "CASH", 100_000);
+        insertCreditPurchaseReturn("supplier-refund-credit", "supplier-refund-source",
+                supplierId, DAY_1.plusDays(1), 82, 50_000, "2026-09-02T01:00:00Z");
+
+        SupplierAccountDetail credited = supplierService.findDetail(supplierId).orElseThrow();
+        assertEquals(-50_000, credited.summary().balancePaisa());
+        assertEquals(0, scalar("SELECT COUNT(*) FROM inventory_movement"));
+        assertTrue(supplierService.search(null, AccountBalanceFilter.CREDIT).accounts().stream()
+                .anyMatch(row -> row.supplierId().equals(supplierId)
+                        && row.balancePaisa() == -50_000));
+
+        supplierService.record(entry(supplierId, DAY_1.plusDays(2),
+                AccountEntryType.CREDIT_REFUND_RECEIVED, 20_000, PaymentMethod.CASH,
+                null));
+
+        SupplierAccountDetail partial = supplierService.findDetail(supplierId).orElseThrow();
+        assertEquals(-30_000, partial.summary().balancePaisa());
+        assertEquals(List.of(-50_000L, -30_000L),
+                partial.entries().stream().map(row -> row.runningBalancePaisa()).toList());
+        assertEquals(1, scalar("SELECT COUNT(*) FROM supplier_account_entry "
+                + "WHERE entry_type = 'CREDIT_REFUND_RECEIVED'"));
+        assertTrue(supplierService.search(null, AccountBalanceFilter.CREDIT).accounts().stream()
+                .anyMatch(row -> row.supplierId().equals(supplierId)
+                        && row.balancePaisa() == -30_000));
+
+        supplierService.record(entry(supplierId, DAY_1.plusDays(3),
+                AccountEntryType.CREDIT_REFUND_RECEIVED, 30_000, PaymentMethod.QR,
+                "REFUND-QR-300"));
+
+        SupplierAccountDetail settled = supplierService.findDetail(supplierId).orElseThrow();
+        SupplierAccountDetail reloaded = supplierService.findDetail(supplierId).orElseThrow();
+        assertEquals(0, settled.summary().balancePaisa());
+        assertEquals(List.of(-50_000L, -30_000L, 0L),
+                settled.entries().stream().map(row -> row.runningBalancePaisa()).toList());
+        assertEquals(List.of("Credit purchase return", "Supplier credit refund received",
+                        "Supplier credit refund received"),
+                settled.entries().stream().map(row -> row.activity()).toList());
+        assertEquals(List.of(0L, 20_000L, 30_000L),
+                settled.entries().stream().map(row -> row.increasePaisa()).toList());
+        assertEquals(List.of(50_000L, 0L, 0L),
+                settled.entries().stream().map(row -> row.decreasePaisa()).toList());
+        assertEquals(List.of("Purchase return #82", "Cash refund received", "REFUND-QR-300"),
+                settled.entries().stream().map(row -> row.reference()).toList());
+        assertEquals(settled.entries(), reloaded.entries());
+        assertEquals(2, scalar("SELECT COUNT(*) FROM supplier_account_entry "
+                + "WHERE entry_type = 'CREDIT_REFUND_RECEIVED'"));
+        assertFalse(supplierService.search(null, AccountBalanceFilter.CREDIT).accounts().stream()
+                .anyMatch(row -> row.supplierId().equals(supplierId)));
+        assertTrue(supplierService.search(null, AccountBalanceFilter.SETTLED).accounts().stream()
+                .anyMatch(row -> row.supplierId().equals(supplierId)
+                        && row.balancePaisa() == 0));
+        assertEquals(1, scalar("SELECT COUNT(*) FROM purchase "
+                + "WHERE id = 'supplier-refund-source' AND payment_method = 'CASH' "
+                + "AND total_amount_paisa = 100000"));
+        assertEquals(1, scalar("SELECT COUNT(*) FROM purchase_return "
+                + "WHERE id = 'supplier-refund-credit' AND settlement_method = 'CREDIT' "
+                + "AND total_amount_paisa = 50000"));
+        assertEquals(0, scalar("SELECT COUNT(*) FROM inventory_movement"));
+    }
+
+    @Test
+    void supplierCashRefundSettlesExactCreditWithOneImmutableFinancialEntry() throws Exception {
+        insertPurchase("supplier-full-refund-source", supplierId, "CASH", 100_000);
+        insertCreditPurchaseReturn("supplier-full-refund-credit", "supplier-full-refund-source",
+                supplierId, DAY_1.plusDays(1), 87, 50_000, "2026-09-02T01:00:00Z");
+        assertEquals(-50_000,
+                supplierService.findDetail(supplierId).orElseThrow().summary().balancePaisa());
+
+        supplierService.record(entry(supplierId, DAY_1.plusDays(2),
+                AccountEntryType.CREDIT_REFUND_RECEIVED,
+                50_000, PaymentMethod.CASH, null));
+
+        SupplierAccountDetail settled = supplierService.findDetail(supplierId).orElseThrow();
+        assertEquals(0, settled.summary().balancePaisa());
+        assertEquals("Settled", AccountBalancePresentation.supplier(
+                settled.summary().balancePaisa()));
+        assertEquals(List.of(-50_000L, 0L),
+                settled.entries().stream().map(row -> row.runningBalancePaisa()).toList());
+        assertEquals(1, scalar("SELECT COUNT(*) FROM supplier_account_entry "
+                + "WHERE supplier_id = '" + supplierId + "' "
+                + "AND entry_type = 'CREDIT_REFUND_RECEIVED' "
+                + "AND amount_paisa = 50000 AND payment_method = 'CASH'"));
+        assertEquals(1, scalar("SELECT COUNT(*) FROM purchase "
+                + "WHERE id = 'supplier-full-refund-source' AND payment_method = 'CASH' "
+                + "AND total_amount_paisa = 100000"));
+        assertEquals(1, scalar("SELECT COUNT(*) FROM purchase_return "
+                + "WHERE id = 'supplier-full-refund-credit' AND settlement_method = 'CREDIT' "
+                + "AND total_amount_paisa = 50000"));
+        assertEquals(0, scalar("SELECT COUNT(*) FROM inventory_movement"));
+    }
+
+    @Test
+    void invalidCreditSettlementsLeaveNoPayoutOrRefundRows() throws Exception {
+        insertSale("invalid-payout-source", customerId, "CASH", 100_000);
+        insertSalesReturn("invalid-payout-credit", "invalid-payout-source",
+                "CREDIT", 40_000, 83);
+        insertPurchase("invalid-refund-source", supplierId, "CASH", 100_000);
+        insertCreditPurchaseReturn("invalid-refund-credit", "invalid-refund-source",
+                supplierId, DAY_1.plusDays(1), 84, 50_000, "2026-09-02T01:00:00Z");
+
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(customerId, DAY_1.plusDays(2), AccountEntryType.CREDIT_PAYOUT,
+                        40_001, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(customerId, DAY_1.plusDays(2), AccountEntryType.CREDIT_PAYOUT,
+                        10_000, PaymentMethod.CREDIT)));
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(customerId, DAY_1.plusDays(2), AccountEntryType.CREDIT_PAYOUT,
+                        0, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(customerId, DAY_1.plusDays(2), AccountEntryType.CREDIT_PAYOUT,
+                        -1, PaymentMethod.QR)));
+
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(supplierId, DAY_1.plusDays(2), AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        50_001, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(supplierId, DAY_1.plusDays(2), AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        10_000, PaymentMethod.CREDIT)));
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(supplierId, DAY_1.plusDays(2), AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        0, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(supplierId, DAY_1.plusDays(2), AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        -1, PaymentMethod.QR)));
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(UUID.randomUUID(), DAY_1.plusDays(2), AccountEntryType.CREDIT_PAYOUT,
+                        1, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(UUID.randomUUID(), DAY_1.plusDays(2),
+                        AccountEntryType.CREDIT_REFUND_RECEIVED, 1, PaymentMethod.QR)));
+
+        UUID zeroCustomer = new CustomerService(customerParties).create(
+                new CustomerDraft("Zero Customer", null, null, true)).id();
+        UUID positiveCustomer = new CustomerService(customerParties).create(
+                new CustomerDraft("Positive Customer", null, null, true)).id();
+        customerService.record(entry(positiveCustomer, DAY_1,
+                AccountEntryType.OPENING_BALANCE, 100, null));
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(zeroCustomer, DAY_1, AccountEntryType.CREDIT_PAYOUT,
+                        1, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> customerService.record(
+                entry(positiveCustomer, DAY_1, AccountEntryType.CREDIT_PAYOUT,
+                        1, PaymentMethod.CASH)));
+
+        UUID zeroSupplier = new SupplierService(supplierParties).create(
+                new SupplierDraft("Zero Supplier", null, null, null, true)).id();
+        UUID positiveSupplier = new SupplierService(supplierParties).create(
+                new SupplierDraft("Positive Supplier", null, null, null, true)).id();
+        supplierService.record(entry(positiveSupplier, DAY_1,
+                AccountEntryType.OPENING_BALANCE, 100, null));
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(zeroSupplier, DAY_1, AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        1, PaymentMethod.CASH)));
+        assertThrows(AccountValidationException.class, () -> supplierService.record(
+                entry(positiveSupplier, DAY_1, AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        1, PaymentMethod.CASH)));
+
+        assertEquals(0, scalar("SELECT COUNT(*) FROM customer_account_entry "
+                + "WHERE entry_type = 'CREDIT_PAYOUT'"));
+        assertEquals(0, scalar("SELECT COUNT(*) FROM supplier_account_entry "
+                + "WHERE entry_type = 'CREDIT_REFUND_RECEIVED'"));
+        assertEquals(-40_000,
+                customerService.findDetail(customerId).orElseThrow().summary().balancePaisa());
+        assertEquals(-50_000,
+                supplierService.findDetail(supplierId).orElseThrow().summary().balancePaisa());
     }
 
     @Test
@@ -269,6 +493,69 @@ class JdbcCreditAccountRepositoryTest {
     }
 
     @Test
+    void failedCustomerCreditPayoutInsertRollsBackAndLeavesCreditAvailable() throws Exception {
+        insertSale("rollback-payout-source", customerId, "CASH", 100_000);
+        insertSalesReturn("rollback-payout-credit", "rollback-payout-source",
+                "CREDIT", 40_000, 85);
+        CustomerAccountEntryRepository insertThenFail = new CustomerAccountEntryRepository() {
+            @Override
+            public boolean hasOpeningBalance(TransactionContext transaction, UUID id) {
+                return customerEntries.hasOpeningBalance(transaction, id);
+            }
+
+            @Override
+            public void insert(TransactionContext transaction, AccountEntry accountEntry) {
+                customerEntries.insert(transaction, accountEntry);
+                throw new IllegalStateException("forced payout failure");
+            }
+        };
+        CustomerAccountService failing = new CustomerAccountService(
+                customerAccounts, insertThenFail, customerParties, transactions,
+                Clock.fixed(CREATED, ZoneOffset.UTC));
+
+        assertThrows(IllegalStateException.class, () -> failing.record(
+                entry(customerId, DAY_1.plusDays(2), AccountEntryType.CREDIT_PAYOUT,
+                        40_000, PaymentMethod.CASH)));
+
+        assertEquals(0, scalar("SELECT COUNT(*) FROM customer_account_entry "
+                + "WHERE entry_type = 'CREDIT_PAYOUT'"));
+        assertEquals(-40_000,
+                customerService.findDetail(customerId).orElseThrow().summary().balancePaisa());
+    }
+
+    @Test
+    void failedSupplierCreditRefundInsertRollsBackAndLeavesCreditAvailable() throws Exception {
+        insertPurchase("rollback-refund-source", supplierId, "CASH", 100_000);
+        insertCreditPurchaseReturn("rollback-refund-credit", "rollback-refund-source",
+                supplierId, DAY_1.plusDays(1), 86, 50_000, "2026-09-02T01:00:00Z");
+        SupplierAccountEntryRepository insertThenFail = new SupplierAccountEntryRepository() {
+            @Override
+            public boolean hasOpeningBalance(TransactionContext transaction, UUID id) {
+                return supplierEntries.hasOpeningBalance(transaction, id);
+            }
+
+            @Override
+            public void insert(TransactionContext transaction, AccountEntry accountEntry) {
+                supplierEntries.insert(transaction, accountEntry);
+                throw new IllegalStateException("forced supplier-refund failure");
+            }
+        };
+        SupplierAccountService failing = new SupplierAccountService(
+                supplierAccounts, insertThenFail, supplierParties, transactions,
+                Clock.fixed(CREATED, ZoneOffset.UTC));
+
+        assertThrows(IllegalStateException.class, () -> failing.record(
+                entry(supplierId, DAY_1.plusDays(2),
+                        AccountEntryType.CREDIT_REFUND_RECEIVED,
+                        50_000, PaymentMethod.CASH)));
+
+        assertEquals(0, scalar("SELECT COUNT(*) FROM supplier_account_entry "
+                + "WHERE entry_type = 'CREDIT_REFUND_RECEIVED'"));
+        assertEquals(-50_000,
+                supplierService.findDetail(supplierId).orElseThrow().summary().balancePaisa());
+    }
+
+    @Test
     void accountListsAreBoundedAndReportTruncation() throws Exception {
         try (var connection = database.openConnection();
              var statement = connection.prepareStatement("""
@@ -302,8 +589,14 @@ class JdbcCreditAccountRepositoryTest {
     private static AccountEntryDraft entry(
             UUID partyId, LocalDate date, AccountEntryType type, long amount,
             PaymentMethod paymentMethod) {
+        return entry(partyId, date, type, amount, paymentMethod, "REF-1");
+    }
+
+    private static AccountEntryDraft entry(
+            UUID partyId, LocalDate date, AccountEntryType type, long amount,
+            PaymentMethod paymentMethod, String reference) {
         return new AccountEntryDraft(partyId, date, type, amount, paymentMethod,
-                "REF-1", "note", null);
+                reference, "note", null);
     }
 
     private void insertCreditSale(

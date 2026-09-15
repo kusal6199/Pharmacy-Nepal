@@ -100,7 +100,7 @@ class SalesReturnValidatorTest {
         UUID saleId = UUID.randomUUID();
         UUID lineId = UUID.randomUUID();
         UUID batchId = UUID.randomUUID();
-        SalesReturnDraft credit = new SalesReturnDraft(saleId, DATE,
+        SalesReturnDraft credit = new SalesReturnDraft(saleId, null, DATE,
                 SalesReturnReason.CUSTOMER_RETURN, PaymentMethod.CREDIT, null,
                 List.of(line(lineId, batchId, 1, 150)), null);
         Sale walkIn = new Sale(saleId, null, DATE, 1, PaymentMethod.CASH, 150,
@@ -113,6 +113,83 @@ class SalesReturnValidatorTest {
 
         assertEquals("Credit refund requires a customer account.",
                 exception.fieldErrors().get("refundMethod"));
+    }
+
+    @Test
+    void creditRefundAcceptsCustomerSelectedOnReturnForWalkInSale() {
+        UUID saleId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        UUID returnCustomerId = UUID.randomUUID();
+        SalesReturnDraft credit = new SalesReturnDraft(saleId, returnCustomerId, DATE,
+                SalesReturnReason.CUSTOMER_RETURN, PaymentMethod.CREDIT, null,
+                List.of(line(lineId, batchId, 1, 150)), null);
+        Sale walkIn = new Sale(saleId, null, DATE, 1, PaymentMethod.CASH, 150,
+                Instant.parse("2026-09-13T00:00:00Z"), null);
+
+        assertDoesNotThrow(() -> SalesReturnValidator.validate(credit, walkIn,
+                Map.of(lineId, availability(lineId, saleId, batchId, 1, 0))));
+    }
+
+    @Test
+    void creditRefundRejectsReturnCustomerDifferentFromOriginalSaleCustomer() {
+        UUID saleId = UUID.randomUUID();
+        UUID originalCustomerId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Sale original = new Sale(saleId, originalCustomerId, DATE, 1,
+                PaymentMethod.CASH, 150, Instant.parse("2026-09-13T00:00:00Z"), null);
+        SalesReturnDraft redirected = new SalesReturnDraft(
+                saleId, UUID.randomUUID(), DATE, SalesReturnReason.CUSTOMER_RETURN,
+                PaymentMethod.CREDIT, null,
+                List.of(line(lineId, batchId, 1, 150)), null);
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> SalesReturnValidator.validate(redirected, original,
+                        Map.of(lineId, availability(lineId, saleId, batchId, 1, 0))));
+
+        assertEquals("Return customer must match the original sale customer.",
+                exception.fieldErrors().get("customer"));
+    }
+
+    @Test
+    void creditSaleCreditRefundStillUsesOriginalCustomerWithoutReturnCustomer() {
+        UUID saleId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        SalesReturnDraft credit = new SalesReturnDraft(saleId, null, DATE,
+                SalesReturnReason.CUSTOMER_RETURN, PaymentMethod.CREDIT, null,
+                List.of(line(lineId, batchId, 1, 150)), null);
+
+        assertDoesNotThrow(() -> SalesReturnValidator.validate(
+                credit, sale(saleId, PaymentMethod.CREDIT),
+                Map.of(lineId, availability(lineId, saleId, batchId, 1, 0))));
+    }
+
+    @Test
+    void rejectsReturnBeforeSaleDateAndAcceptsSameOrLaterDate() {
+        UUID saleId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Sale original = sale(saleId, PaymentMethod.CASH);
+        Map<UUID, SalesReturnLineAvailability> availability = Map.of(lineId,
+                availability(lineId, saleId, batchId, 3, 0));
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> SalesReturnValidator.validate(
+                        draft(saleId, line(lineId, batchId, 1, 150), PaymentMethod.CASH,
+                                DATE.minusDays(1)), original, availability));
+
+        assertEquals("Return date cannot be before the original sale date.",
+                exception.fieldErrors().get("returnDate"));
+        assertDoesNotThrow(() -> SalesReturnValidator.validate(
+                draft(saleId, line(lineId, batchId, 1, 150), PaymentMethod.CASH, DATE),
+                original, availability));
+        assertDoesNotThrow(() -> SalesReturnValidator.validate(
+                draft(saleId, line(lineId, batchId, 1, 150), PaymentMethod.CASH,
+                        DATE.plusDays(1)), original, availability));
     }
 
     @Test
@@ -182,7 +259,16 @@ class SalesReturnValidatorTest {
 
     private static SalesReturnDraft draft(
             UUID saleId, SalesReturnLineDraft line, PaymentMethod refundMethod) {
-        return new SalesReturnDraft(saleId, DATE, SalesReturnReason.CUSTOMER_RETURN,
+        return draft(saleId, line, refundMethod, DATE);
+    }
+
+    private static SalesReturnDraft draft(
+            UUID saleId,
+            SalesReturnLineDraft line,
+            PaymentMethod refundMethod,
+            LocalDate returnDate
+    ) {
+        return new SalesReturnDraft(saleId, null, returnDate, SalesReturnReason.CUSTOMER_RETURN,
                 refundMethod, null, List.of(line), null);
     }
 

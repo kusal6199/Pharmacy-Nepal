@@ -28,9 +28,19 @@ public final class JdbcCustomerAccountRepository implements CustomerAccountRepos
                        'MANUAL_' || entry_type AS event_kind, id AS source_id,
                        CASE entry_type
                            WHEN 'OPENING_BALANCE' THEN amount_paisa
-                           ELSE -amount_paisa
+                           WHEN 'PAYMENT_RECEIVED' THEN -amount_paisa
+                           WHEN 'CREDIT_PAYOUT' THEN amount_paisa
                        END AS delta_paisa,
-                       reference_text, notes
+                       CASE entry_type
+                           WHEN 'CREDIT_PAYOUT' THEN COALESCE(
+                               reference_text,
+                               CASE payment_method
+                                   WHEN 'CASH' THEN 'Cash payout'
+                                   WHEN 'QR' THEN 'QR / digital payout'
+                               END)
+                           ELSE reference_text
+                       END AS reference_text,
+                       notes
                 FROM customer_account_entry
                 UNION ALL
                 SELECT customer_id, sale_date, created_at, 'CREDIT_SALE', id,
@@ -39,12 +49,13 @@ public final class JdbcCustomerAccountRepository implements CustomerAccountRepos
                 FROM sale
                 WHERE customer_id IS NOT NULL AND payment_method = 'CREDIT'
                 UNION ALL
-                SELECT s.customer_id, sr.return_date, sr.created_at,
+                SELECT COALESCE(sr.customer_id, s.customer_id), sr.return_date, sr.created_at,
                        'CREDIT_SALES_RETURN', sr.id, -sr.total_amount_paisa,
                        'Sales return #' || sr.return_number, sr.notes
                 FROM sales_return sr
                 JOIN sale s ON s.id = sr.original_sale_id
-                WHERE s.customer_id IS NOT NULL AND sr.refund_method = 'CREDIT'
+                WHERE COALESCE(sr.customer_id, s.customer_id) IS NOT NULL
+                  AND sr.refund_method = 'CREDIT'
             )
             """;
 
@@ -189,6 +200,7 @@ public final class JdbcCustomerAccountRepository implements CustomerAccountRepos
         return switch (kind) {
             case "MANUAL_OPENING_BALANCE" -> "Opening balance";
             case "MANUAL_PAYMENT_RECEIVED" -> "Payment received";
+            case "MANUAL_CREDIT_PAYOUT" -> "Customer credit payout";
             case "CREDIT_SALE" -> "Credit sale";
             case "CREDIT_SALES_RETURN" -> "Sales return credit";
             default -> throw new IllegalArgumentException("Unknown customer ledger event: " + kind);

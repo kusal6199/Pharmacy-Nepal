@@ -204,11 +204,12 @@ public final class PharmacyApplication extends Application {
     }
 
     private void showSalesReturns() {
-        shell.setCenter(new SalesReturnScreen(salesReturnService).view());
+        shell.setCenter(new SalesReturnScreen(salesReturnService, customerService).view());
     }
 
     private void showSalesReturns(long invoiceNumber) {
-        shell.setCenter(new SalesReturnScreen(salesReturnService, invoiceNumber).view());
+        shell.setCenter(new SalesReturnScreen(
+                salesReturnService, customerService, invoiceNumber).view());
     }
 
     private void showPurchaseReturns() {

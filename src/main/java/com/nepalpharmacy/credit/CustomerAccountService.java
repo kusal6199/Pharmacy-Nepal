@@ -5,6 +5,7 @@ import com.nepalpharmacy.shared.persistence.TransactionRunner;
 
 import java.time.Clock;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,6 +47,16 @@ public final class CustomerAccountService {
 
     public Optional<CustomerAccountDetail> findDetail(UUID customerId) {
         return accounts.findDetail(customerId);
+    }
+
+    public List<AccountEntryType> allowedEntryTypes(long currentBalancePaisa) {
+        if (currentBalancePaisa > 0) {
+            return List.of(AccountEntryType.OPENING_BALANCE, AccountEntryType.PAYMENT_RECEIVED);
+        }
+        if (currentBalancePaisa < 0) {
+            return List.of(AccountEntryType.OPENING_BALANCE, AccountEntryType.CREDIT_PAYOUT);
+        }
+        return List.of(AccountEntryType.OPENING_BALANCE);
     }
 
     public AccountEntry record(AccountEntryDraft input) {

@@ -28,9 +28,19 @@ public final class JdbcSupplierAccountRepository implements SupplierAccountRepos
                        'MANUAL_' || entry_type AS event_kind, id AS source_id,
                        CASE entry_type
                            WHEN 'OPENING_BALANCE' THEN amount_paisa
-                           ELSE -amount_paisa
+                           WHEN 'PAYMENT_MADE' THEN -amount_paisa
+                           WHEN 'CREDIT_REFUND_RECEIVED' THEN amount_paisa
                        END AS delta_paisa,
-                       reference_text, notes
+                       CASE entry_type
+                           WHEN 'CREDIT_REFUND_RECEIVED' THEN COALESCE(
+                               reference_text,
+                               CASE payment_method
+                                   WHEN 'CASH' THEN 'Cash refund received'
+                                   WHEN 'QR' THEN 'QR / digital refund received'
+                               END)
+                           ELSE reference_text
+                       END AS reference_text,
+                       notes
                 FROM supplier_account_entry
                 UNION ALL
                 SELECT supplier_id, purchase_date, created_at, 'CREDIT_PURCHASE', id,
@@ -191,6 +201,7 @@ public final class JdbcSupplierAccountRepository implements SupplierAccountRepos
         return switch (kind) {
             case "MANUAL_OPENING_BALANCE" -> "Opening balance";
             case "MANUAL_PAYMENT_MADE" -> "Payment made";
+            case "MANUAL_CREDIT_REFUND_RECEIVED" -> "Supplier credit refund received";
             case "CREDIT_PURCHASE" -> "Credit purchase";
             case "CREDIT_PURCHASE_RETURN" -> "Credit purchase return";
             default -> throw new IllegalArgumentException("Unknown supplier ledger event: " + kind);

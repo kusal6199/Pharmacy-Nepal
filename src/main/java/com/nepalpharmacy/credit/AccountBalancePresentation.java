@@ -19,7 +19,27 @@ public final class AccountBalancePresentation {
         return "Settled";
     }
 
-    private static String magnitude(long paisa) {
+    public static String customerSettlementHint(long balancePaisa) {
+        if (balancePaisa > 0) {
+            return "Outstanding customer balance: NPR " + magnitude(balancePaisa);
+        }
+        if (balancePaisa < 0) {
+            return "Available customer credit: NPR " + magnitude(balancePaisa);
+        }
+        return "No customer balance to settle.";
+    }
+
+    public static String supplierSettlementHint(long balancePaisa) {
+        if (balancePaisa > 0) {
+            return "Outstanding supplier payable: NPR " + magnitude(balancePaisa);
+        }
+        if (balancePaisa < 0) {
+            return "Available supplier credit: NPR " + magnitude(balancePaisa);
+        }
+        return "No supplier balance to settle.";
+    }
+
+    static String magnitude(long paisa) {
         return BigDecimal.valueOf(paisa, 2)
                 .abs().setScale(2, RoundingMode.UNNECESSARY).toPlainString();
     }

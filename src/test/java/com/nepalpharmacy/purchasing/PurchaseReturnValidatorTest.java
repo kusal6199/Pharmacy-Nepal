@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -148,9 +149,44 @@ class PurchaseReturnValidatorTest {
                 .fieldErrors().get("settlementMethod"));
     }
 
+    @Test
+    void rejectsReturnBeforePurchaseDateAndAcceptsSameOrLaterDate() {
+        UUID purchaseId = UUID.randomUUID();
+        UUID supplierId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Purchase original = purchase(purchaseId, supplierId, DATE);
+        Map<UUID, PurchaseReturnLineAvailability> availability = Map.of(lineId,
+                availability(lineId, purchaseId, batchId, 3, 0, 3));
+
+        PurchaseReturnValidationException exception = assertThrows(
+                PurchaseReturnValidationException.class,
+                () -> PurchaseReturnValidator.validate(
+                        draft(purchaseId, supplierId, line(lineId, batchId, 1, 100),
+                                DATE.minusDays(1)), original, availability));
+
+        assertEquals("Return date cannot be before the original purchase date.",
+                exception.fieldErrors().get("returnDate"));
+        assertDoesNotThrow(() -> PurchaseReturnValidator.validate(
+                draft(purchaseId, supplierId, line(lineId, batchId, 1, 100), DATE),
+                original, availability));
+        assertDoesNotThrow(() -> PurchaseReturnValidator.validate(
+                draft(purchaseId, supplierId, line(lineId, batchId, 1, 100),
+                        DATE.plusDays(1)), original, availability));
+    }
+
     private static PurchaseReturnDraft draft(
             UUID purchaseId, UUID supplierId, PurchaseReturnLineDraft line) {
-        return new PurchaseReturnDraft(purchaseId, supplierId, DATE,
+        return draft(purchaseId, supplierId, line, DATE);
+    }
+
+    private static PurchaseReturnDraft draft(
+            UUID purchaseId,
+            UUID supplierId,
+            PurchaseReturnLineDraft line,
+            LocalDate returnDate
+    ) {
+        return new PurchaseReturnDraft(purchaseId, supplierId, returnDate,
                 PurchaseReturnReason.DAMAGED, PurchasePaymentMethod.CASH,
                 null, List.of(line), null);
     }
@@ -161,7 +197,11 @@ class PurchaseReturnValidatorTest {
     }
 
     private static Purchase purchase(UUID id, UUID supplierId) {
-        return new Purchase(id, supplierId, DATE.minusDays(1), "INV-1",
+        return purchase(id, supplierId, DATE.minusDays(1));
+    }
+
+    private static Purchase purchase(UUID id, UUID supplierId, LocalDate purchaseDate) {
+        return new Purchase(id, supplierId, purchaseDate, "INV-1",
                 PurchasePaymentMethod.CASH, 500,
                 Instant.parse("2026-09-13T00:00:00Z"), null);
     }

@@ -129,6 +129,7 @@ public final class ApplicationContext {
                         saleLineRepository,
                         batchRepository,
                         productRepository,
+                        customerRepository,
                         salesReturnRepository,
                         salesReturnLineRepository,
                         movementRepository);

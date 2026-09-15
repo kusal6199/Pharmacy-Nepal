@@ -37,6 +37,10 @@ public final class PurchaseReturnValidator {
                 && !originalPurchase.supplierId().equals(draft.supplierId())) {
             errors.put("supplier", "Supplier does not match the original purchase.");
         }
+        if (draft != null && draft.returnDate() != null && originalPurchase != null
+                && draft.returnDate().isBefore(originalPurchase.purchaseDate())) {
+            errors.put("returnDate", "Return date cannot be before the original purchase date.");
+        }
 
         Map<UUID, Long> requestedByOriginalLine = new LinkedHashMap<>();
         Map<UUID, Long> requestedByBatch = new LinkedHashMap<>();

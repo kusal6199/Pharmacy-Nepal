@@ -57,7 +57,7 @@ public final class CreditAccountsScreen {
     private final Label customerDetailSummary = new Label("Select a customer account.");
     private final ObservableList<AccountLedgerEntry> customerLedger = FXCollections.observableArrayList();
     private final TableView<AccountLedgerEntry> customerLedgerTable = ledgerTable(customerLedger, true);
-    private final EntryForm customerEntry = new EntryForm(AccountEntryType.PAYMENT_RECEIVED);
+    private final EntryForm customerEntry = new EntryForm();
     private UUID selectedCustomerId;
 
     private final TextField supplierSearch = new TextField();
@@ -68,7 +68,7 @@ public final class CreditAccountsScreen {
     private final Label supplierDetailSummary = new Label("Select a supplier account.");
     private final ObservableList<AccountLedgerEntry> supplierLedger = FXCollections.observableArrayList();
     private final TableView<AccountLedgerEntry> supplierLedgerTable = ledgerTable(supplierLedger, false);
-    private final EntryForm supplierEntry = new EntryForm(AccountEntryType.PAYMENT_MADE);
+    private final EntryForm supplierEntry = new EntryForm();
     private UUID selectedSupplierId;
 
     public CreditAccountsScreen(
@@ -119,7 +119,7 @@ public final class CreditAccountsScreen {
                 panel("Find customer account", new VBox(8, filters, customerListFeedback)),
                 panel("Customer accounts", customerTable),
                 panel("Customer ledger", new VBox(8, customerDetailSummary, customerLedgerTable)),
-                panel("Record opening balance or payment received", customerEntry.view));
+                panel("Record customer account entry", customerEntry.view));
         return scroll(content);
     }
 
@@ -140,7 +140,7 @@ public final class CreditAccountsScreen {
                 panel("Find supplier account", new VBox(8, filters, supplierListFeedback)),
                 panel("Supplier accounts", supplierTable),
                 panel("Supplier ledger", new VBox(8, supplierDetailSummary, supplierLedgerTable)),
-                panel("Record opening balance or payment made", supplierEntry.view));
+                panel("Record supplier account entry", supplierEntry.view));
         return scroll(content);
     }
 
@@ -177,6 +177,9 @@ public final class CreditAccountsScreen {
             selectedCustomerId = null;
             customerLedger.clear();
             customerDetailSummary.setText("Select a customer account.");
+            customerEntry.configure(
+                    List.of(AccountEntryType.OPENING_BALANCE),
+                    "Select a customer to see available settlement actions.");
             BoundedAccountResult<CustomerAccountSummary> result = customers.search(
                     customerSearch.getText(), customerFilter.getValue());
             customerRows.setAll(result.accounts());
@@ -193,6 +196,9 @@ public final class CreditAccountsScreen {
             selectedSupplierId = null;
             supplierLedger.clear();
             supplierDetailSummary.setText("Select a supplier account.");
+            supplierEntry.configure(
+                    List.of(AccountEntryType.OPENING_BALANCE),
+                    "Select a supplier to see available settlement actions.");
             BoundedAccountResult<SupplierAccountSummary> result = suppliers.search(
                     supplierSearch.getText(), supplierFilter.getValue());
             supplierRows.setAll(result.accounts());
@@ -209,10 +215,18 @@ public final class CreditAccountsScreen {
         customerLedger.clear();
         if (selected == null) {
             customerDetailSummary.setText("Select a customer account.");
+            customerEntry.configure(
+                    List.of(AccountEntryType.OPENING_BALANCE),
+                    "Select a customer to see available settlement actions.");
             return;
         }
+        loadCustomer(selected.customerId());
+    }
+
+    private void loadCustomer(UUID customerId) {
+        selectedCustomerId = customerId;
         try {
-            CustomerAccountDetail detail = customers.findDetail(selected.customerId()).orElse(null);
+            CustomerAccountDetail detail = customers.findDetail(customerId).orElse(null);
             if (detail == null) {
                 customerDetailSummary.setText("That customer account no longer exists.");
                 return;
@@ -221,6 +235,10 @@ public final class CreditAccountsScreen {
             customerDetailSummary.setText(detail.summary().customerName() + " • "
                     + customerBalance(detail.summary().balancePaisa())
                     + (detail.summary().active() ? "" : " • inactive"));
+            customerEntry.configure(
+                    customers.allowedEntryTypes(detail.summary().balancePaisa()),
+                    AccountBalancePresentation.customerSettlementHint(
+                            detail.summary().balancePaisa()));
         } catch (RuntimeException exception) {
             customerDetailSummary.setText(message(exception));
         }
@@ -231,10 +249,18 @@ public final class CreditAccountsScreen {
         supplierLedger.clear();
         if (selected == null) {
             supplierDetailSummary.setText("Select a supplier account.");
+            supplierEntry.configure(
+                    List.of(AccountEntryType.OPENING_BALANCE),
+                    "Select a supplier to see available settlement actions.");
             return;
         }
+        loadSupplier(selected.supplierId());
+    }
+
+    private void loadSupplier(UUID supplierId) {
+        selectedSupplierId = supplierId;
         try {
-            SupplierAccountDetail detail = suppliers.findDetail(selected.supplierId()).orElse(null);
+            SupplierAccountDetail detail = suppliers.findDetail(supplierId).orElse(null);
             if (detail == null) {
                 supplierDetailSummary.setText("That supplier account no longer exists.");
                 return;
@@ -243,6 +269,10 @@ public final class CreditAccountsScreen {
             supplierDetailSummary.setText(detail.summary().supplierName() + " • "
                     + supplierBalance(detail.summary().balancePaisa())
                     + (detail.summary().active() ? "" : " • inactive"));
+            supplierEntry.configure(
+                    suppliers.allowedEntryTypes(detail.summary().balancePaisa()),
+                    AccountBalancePresentation.supplierSettlementHint(
+                            detail.summary().balancePaisa()));
         } catch (RuntimeException exception) {
             supplierDetailSummary.setText(message(exception));
         }
@@ -259,8 +289,16 @@ public final class CreditAccountsScreen {
             customerEntry.feedback.setText("Customer account entry recorded.");
             UUID id = selectedCustomerId;
             refreshCustomers();
-            customerRows.stream().filter(row -> row.customerId().equals(id)).findFirst()
-                    .ifPresent(customerTable.getSelectionModel()::select);
+            CustomerAccountSummary matching = customerRows.stream()
+                    .filter(row -> row.customerId().equals(id)).findFirst().orElse(null);
+            if (matching != null) {
+                customerTable.getSelectionModel().select(matching);
+            } else {
+                loadCustomer(id);
+                customerListFeedback.setText(customerListFeedback.getText()
+                        + " Updated account detail remains open although it no longer matches "
+                        + "the current balance filter.");
+            }
         } catch (RuntimeException exception) {
             customerEntry.feedback.setText(message(exception));
         }
@@ -277,8 +315,16 @@ public final class CreditAccountsScreen {
             supplierEntry.feedback.setText("Supplier account entry recorded.");
             UUID id = selectedSupplierId;
             refreshSuppliers();
-            supplierRows.stream().filter(row -> row.supplierId().equals(id)).findFirst()
-                    .ifPresent(supplierTable.getSelectionModel()::select);
+            SupplierAccountSummary matching = supplierRows.stream()
+                    .filter(row -> row.supplierId().equals(id)).findFirst().orElse(null);
+            if (matching != null) {
+                supplierTable.getSelectionModel().select(matching);
+            } else {
+                loadSupplier(id);
+                supplierListFeedback.setText(supplierListFeedback.getText()
+                        + " Updated account detail remains open although it no longer matches "
+                        + "the current balance filter.");
+            }
         } catch (RuntimeException exception) {
             supplierEntry.feedback.setText(message(exception));
         }
@@ -300,10 +346,10 @@ public final class CreditAccountsScreen {
         table.getColumns().add(column("Date", row -> row.businessDate().toString(), 90));
         table.getColumns().add(column("Activity", AccountLedgerEntry::activity, 130));
         table.getColumns().add(column("Reference", row -> optional(row.reference()), 150));
-        table.getColumns().add(column(customer ? "Charge" : "Increase",
-                row -> amountOrDash(row.increasePaisa()), 90));
-        table.getColumns().add(column(customer ? "Credit / paid" : "Paid / credit",
-                row -> amountOrDash(row.decreasePaisa()), 90));
+        table.getColumns().add(column("Balance increase",
+                row -> amountOrDash(row.increasePaisa()), 105));
+        table.getColumns().add(column("Balance decrease",
+                row -> amountOrDash(row.decreasePaisa()), 105));
         table.getColumns().add(column("Running balance",
                 row -> customer ? customerBalance(row.runningBalancePaisa())
                         : supplierBalance(row.runningBalancePaisa()), 180));
@@ -376,7 +422,6 @@ public final class CreditAccountsScreen {
     }
 
     private static final class EntryForm {
-        private final AccountEntryType paymentType;
         private final ComboBox<AccountEntryType> type = new ComboBox<>();
         private final DatePicker date = new DatePicker(LocalDate.now());
         private final TextField amount = new TextField();
@@ -385,21 +430,16 @@ public final class CreditAccountsScreen {
         private final TextArea notes = new TextArea();
         private final Button save = new Button("Record account entry");
         private final Label feedback = new Label();
+        private final Label balanceHint = new Label();
         private final VBox view;
 
-        private EntryForm(AccountEntryType paymentType) {
-            this.paymentType = paymentType;
-            type.setItems(FXCollections.observableArrayList(
-                    AccountEntryType.OPENING_BALANCE, paymentType));
+        private EntryForm() {
+            type.setItems(FXCollections.observableArrayList(AccountEntryType.OPENING_BALANCE));
             type.setValue(AccountEntryType.OPENING_BALANCE);
             method.setItems(FXCollections.observableArrayList(PaymentMethod.CASH, PaymentMethod.QR));
-            method.setPromptText("Required for payment");
+            method.setPromptText("Required for settlement");
             method.setDisable(true);
-            type.setOnAction(event -> {
-                boolean opening = type.getValue() == AccountEntryType.OPENING_BALANCE;
-                method.setDisable(opening);
-                if (opening) method.setValue(null);
-            });
+            type.setOnAction(event -> updatePaymentMethodState());
             amount.setPromptText("NPR, up to 2 decimal places");
             reference.setPromptText("Optional receipt/reference");
             notes.setPromptText("Optional, up to 500 characters");
@@ -407,6 +447,8 @@ public final class CreditAccountsScreen {
             save.getStyleClass().add("primary-button");
             feedback.getStyleClass().add("feedback");
             feedback.setWrapText(true);
+            balanceHint.getStyleClass().add("table-hint");
+            balanceHint.setWrapText(true);
 
             GridPane fields = new GridPane();
             fields.setHgap(10);
@@ -421,7 +463,23 @@ public final class CreditAccountsScreen {
             GridPane.setHgrow(reference, Priority.ALWAYS);
             HBox actions = new HBox(save);
             actions.setAlignment(Pos.CENTER_RIGHT);
-            view = new VBox(10, fields, actions, feedback);
+            view = new VBox(10, balanceHint, fields, actions, feedback);
+        }
+
+        private void configure(List<AccountEntryType> entryTypes, String hint) {
+            type.setItems(FXCollections.observableArrayList(entryTypes));
+            // Settlement is last when available, so selecting an account defaults to the
+            // action appropriate for its current sign instead of an opening balance.
+            type.setValue(entryTypes.get(entryTypes.size() - 1));
+            balanceHint.setText(hint);
+            updatePaymentMethodState();
+        }
+
+        private void updatePaymentMethodState() {
+            AccountEntryType selected = type.getValue();
+            boolean requiresMethod = selected != null && selected.requiresPaymentMethod();
+            method.setDisable(!requiresMethod);
+            if (!requiresMethod) method.setValue(null);
         }
 
         private AccountEntryDraft draft(UUID partyId) {
@@ -435,7 +493,7 @@ public final class CreditAccountsScreen {
             reference.clear();
             notes.clear();
             method.setValue(null);
-            type.setValue(paymentType);
+            feedback.setText("");
         }
 
         private static long parsePaisa(String text) {

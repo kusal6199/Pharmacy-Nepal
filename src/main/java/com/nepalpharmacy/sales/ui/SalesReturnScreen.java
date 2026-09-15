@@ -1,5 +1,7 @@
 package com.nepalpharmacy.sales.ui;
 
+import com.nepalpharmacy.party.Customer;
+import com.nepalpharmacy.party.CustomerService;
 import com.nepalpharmacy.sales.PaymentMethod;
 import com.nepalpharmacy.sales.SalesReturn;
 import com.nepalpharmacy.sales.SalesReturnDraft;
@@ -38,6 +40,7 @@ import java.util.stream.Collectors;
 public final class SalesReturnScreen {
 
     private final SalesReturnService returns;
+    private final CustomerSelectionPane customerSelection;
     private final VBox root = new VBox();
     private final TextField invoiceNumber = new TextField();
     private final Label sourceSummary = new Label("Load an original sale to begin.");
@@ -55,13 +58,17 @@ public final class SalesReturnScreen {
     private final Label feedback = new Label();
     private SalesReturnSource source;
 
-    public SalesReturnScreen(SalesReturnService returns) {
+    public SalesReturnScreen(SalesReturnService returns, CustomerService customers) {
         this.returns = returns;
+        customerSelection = new CustomerSelectionPane(
+                customers, "Select customer for store credit",
+                feedback::setText, feedback::setText);
         configureView();
     }
 
-    public SalesReturnScreen(SalesReturnService returns, long invoiceNumber) {
-        this(returns);
+    public SalesReturnScreen(
+            SalesReturnService returns, CustomerService customers, long invoiceNumber) {
+        this(returns, customers);
         this.invoiceNumber.setText(Long.toString(invoiceNumber));
         loadSale();
     }
@@ -170,7 +177,9 @@ public final class SalesReturnScreen {
         grid.addRow(1, label("Refund method *"), refundMethod, label("Notes"), notes);
         GridPane.setHgrow(reason, Priority.ALWAYS);
         GridPane.setHgrow(notes, Priority.ALWAYS);
-        return panel("Return details", grid);
+        refundMethod.setOnAction(event -> updateCustomerVisibility());
+        updateCustomerVisibility();
+        return panel("Return details", new VBox(12, grid, customerSelection.view()));
     }
 
     private HBox saveBar() {
@@ -201,6 +210,7 @@ public final class SalesReturnScreen {
             refundMethod.setItems(FXCollections.observableArrayList(
                     returns.allowedRefundMethods(source)));
             refundMethod.setValue(refundMethod.getItems().get(0));
+            updateCustomerVisibility();
             sourceSummary.setText("Invoice " + source.sale().invoiceNumber()
                     + " • " + source.sale().saleDate()
                     + " • original method " + source.sale().paymentMethod()
@@ -216,6 +226,14 @@ public final class SalesReturnScreen {
     private void resetRefundMethods() {
         refundMethod.setItems(FXCollections.observableArrayList(PaymentMethod.values()));
         refundMethod.setValue(PaymentMethod.CASH);
+        updateCustomerVisibility();
+    }
+
+    private void updateCustomerVisibility() {
+        boolean needsReturnCustomer = source != null
+                && source.sale().customerId() == null
+                && refundMethod.getValue() == PaymentMethod.CREDIT;
+        customerSelection.setShown(needsReturnCustomer);
     }
 
     private void addLine() {
@@ -247,8 +265,10 @@ public final class SalesReturnScreen {
             return;
         }
         try {
+            Customer selectedCustomer = customerSelection.selectedCustomer();
             SalesReturn completed = returns.record(new SalesReturnDraft(
-                    source.sale().id(), returnDate.getValue(), reason.getValue(),
+                    source.sale().id(), selectedCustomer == null ? null : selectedCustomer.id(),
+                    returnDate.getValue(), reason.getValue(),
                     refundMethod.getValue(), notes.getText(),
                     draftLines.stream().map(ReturnRow::draft).toList(), null));
             feedback.setText("Sales return #" + completed.returnNumber()
@@ -256,6 +276,7 @@ public final class SalesReturnScreen {
                     + " by " + completed.refundMethod() + ". Batch stock was restored.");
             draftLines.clear();
             notes.clear();
+            customerSelection.clearSelection();
             updateTotal();
             returns.findSourceByInvoiceNumber(source.sale().invoiceNumber()).ifPresent(updated -> {
                 source = updated;

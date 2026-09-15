@@ -72,7 +72,7 @@ class CreditMigrationTest {
                     """);
         }
 
-        assertEquals(1, database.migrate());
+        assertEquals(3, database.migrate());
 
         try (Connection connection = database.openConnection()) {
             assertRow(connection,
@@ -89,6 +89,8 @@ class CreditMigrationTest {
                     "SELECT total_amount_paisa FROM sale WHERE id = 'old-sale' AND customer_id = 'customer-1'"));
             assertEquals(111, scalar(connection,
                     "SELECT total_amount_paisa FROM sales_return WHERE id = 'old-sales-return' AND original_sale_id = 'old-sale'"));
+            assertNull(value(connection,
+                    "SELECT customer_id FROM sales_return WHERE id = 'old-sales-return'"));
             assertEquals(1, scalar(connection,
                     "SELECT COUNT(*) FROM customer WHERE id = 'customer-1' AND name = 'Asha'"));
             assertEquals(1, scalar(connection,
@@ -229,6 +231,14 @@ class CreditMigrationTest {
              var rows = statement.executeQuery()) {
             rows.next();
             return rows.getLong(1);
+        }
+    }
+
+    private static String value(Connection connection, String sql) throws SQLException {
+        try (var statement = connection.prepareStatement(sql);
+             var results = statement.executeQuery()) {
+            assertTrue(results.next());
+            return results.getString(1);
         }
     }
 

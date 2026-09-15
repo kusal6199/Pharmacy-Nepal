@@ -1,6 +1,11 @@
 package com.nepalpharmacy.sales.infrastructure;
 
 import com.nepalpharmacy.bootstrap.DatabaseBootstrap;
+import com.nepalpharmacy.credit.AccountBalancePresentation;
+import com.nepalpharmacy.credit.AccountEntryDraft;
+import com.nepalpharmacy.credit.AccountEntryType;
+import com.nepalpharmacy.credit.CustomerAccountService;
+import com.nepalpharmacy.credit.infrastructure.JdbcCustomerAccountEntryRepository;
 import com.nepalpharmacy.credit.infrastructure.JdbcCustomerAccountRepository;
 import com.nepalpharmacy.inventory.BatchStock;
 import com.nepalpharmacy.inventory.InventoryMovement;
@@ -49,12 +54,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -278,6 +287,7 @@ class JdbcSalesReturnEntryRepositoryTest {
         SalesReturn completed = record(source, 1, PaymentMethod.CREDIT);
 
         assertEquals(PaymentMethod.CREDIT, completed.refundMethod());
+        assertNull(completed.customerId());
         assertEquals(150, completed.totalAmountPaisa());
         assertEquals(150, customerBalance());
         assertEquals(9, stock(source.lines().get(0).batchId()));
@@ -301,10 +311,102 @@ class JdbcSalesReturnEntryRepositoryTest {
     }
 
     @Test
+    void walkInCashSaleCreditRefundCanSelectCustomerOnReturn() {
+        SaleReceipt sale = sell("RETURN-CUSTOMER", 10, 2);
+        SalesReturnSource source = source(sale);
+
+        SalesReturn completed = record(
+                source, 1, PaymentMethod.CREDIT, customer.id());
+
+        assertEquals(customer.id(), completed.customerId());
+        assertEquals(-150, customerBalance());
+        assertEquals(customer.id().toString(), textScalar(
+                "SELECT customer_id FROM sales_return WHERE id = ?", completed.id()));
+        assertNull(textScalar("SELECT customer_id FROM sale WHERE id = ?", sale.sale().id()));
+        assertEquals(9, stock(source.lines().get(0).batchId()));
+    }
+
+    @Test
+    void walkInQrSaleCreditRefundCanSelectCustomerOnReturn() {
+        SaleReceipt sale = sell("RETURN-CUSTOMER-QR", 10, 2,
+                PaymentMethod.QR, null);
+        SalesReturnSource source = source(sale);
+
+        SalesReturn completed = record(
+                source, 1, PaymentMethod.CREDIT, customer.id());
+
+        assertEquals(customer.id(), completed.customerId());
+        assertEquals(PaymentMethod.CREDIT, completed.refundMethod());
+        assertEquals(-150, customerBalance());
+        assertEquals(customer.id().toString(), textScalar(
+                "SELECT customer_id FROM sales_return WHERE id = ?", completed.id()));
+        assertNull(textScalar("SELECT customer_id FROM sale WHERE id = ?", sale.sale().id()));
+        assertEquals(9, stock(source.lines().get(0).batchId()));
+    }
+
+    @Test
+    void walkInCashSaleCreditReturnThenCashPayoutSettlesWithoutChangingSourceOrStock() {
+        Customer ram = new CustomerService(customerRepository).create(new CustomerDraft(
+                "Ram", "9812345678", null, true));
+        product = productService.update(product.id(), productDraft(20_000));
+        SaleReceipt sale = sell("RAM-STORE-CREDIT", 10, 5);
+        SalesReturnSource source = source(sale);
+
+        SalesReturn creditReturn = record(
+                source, 2, PaymentMethod.CREDIT, ram.id());
+
+        assertEquals(100_000, sale.sale().totalAmountPaisa());
+        assertNull(sale.sale().customerId());
+        assertEquals(40_000, creditReturn.totalAmountPaisa());
+        assertEquals(PaymentMethod.CREDIT, creditReturn.refundMethod());
+        assertEquals(ram.id(), creditReturn.customerId());
+        assertEquals(-40_000,
+                customerAccounts.findDetail(ram.id()).orElseThrow().summary().balancePaisa());
+        assertEquals("Customer credit NPR 400.00", AccountBalancePresentation.customer(-40_000));
+        assertEquals(7, stock(source.lines().get(0).batchId()));
+        assertEquals(1, scalar("SELECT COUNT(*) FROM inventory_movement "
+                + "WHERE movement_type = 'SALE_RETURN' AND reference_id = ?", creditReturn.id()));
+
+        List<String> saleBeforePayout = originalRows(sale.sale().id());
+        List<String> returnBeforePayout = salesReturnRows(creditReturn.id());
+        List<String> movementsBeforePayout = inventoryMovementRows();
+        long stockBeforePayout = stock(source.lines().get(0).batchId());
+        CustomerAccountService ramAccount = new CustomerAccountService(
+                customerAccounts, new JdbcCustomerAccountEntryRepository(), customerRepository,
+                transactions, Clock.fixed(Instant.parse("2026-09-18T10:00:00Z"), ZoneOffset.UTC));
+
+        var payout = ramAccount.record(new AccountEntryDraft(
+                ram.id(), DATE.plusDays(5), AccountEntryType.CREDIT_PAYOUT,
+                40_000, PaymentMethod.CASH, "RAM-CASH-PAYOUT-400",
+                "Customer requested cash instead of medicine", null));
+
+        var settled = ramAccount.findDetail(ram.id()).orElseThrow();
+        assertEquals(1, scalar("SELECT COUNT(*) FROM customer_account_entry "
+                + "WHERE customer_id = ?", ram.id()));
+        assertEquals(0, settled.summary().balancePaisa());
+        assertEquals("Settled", AccountBalancePresentation.customer(
+                settled.summary().balancePaisa()));
+        assertEquals(List.of("Sales return credit", "Customer credit payout"),
+                settled.entries().stream().map(row -> row.activity()).toList());
+        assertEquals(List.of(-40_000L, 0L),
+                settled.entries().stream().map(row -> row.runningBalancePaisa()).toList());
+        assertEquals("RAM-CASH-PAYOUT-400", settled.entries().get(1).reference());
+        assertEquals(saleBeforePayout, originalRows(sale.sale().id()));
+        assertEquals(returnBeforePayout, salesReturnRows(creditReturn.id()));
+        assertEquals(stockBeforePayout, stock(source.lines().get(0).batchId()));
+        assertEquals(movementsBeforePayout, inventoryMovementRows());
+        assertEquals(0, scalar("SELECT COUNT(*) FROM inventory_movement "
+                + "WHERE reference_id = ?", payout.id()));
+        assertNull(textScalar("SELECT customer_id FROM sale WHERE id = ?", sale.sale().id()));
+        assertEquals(ram.id().toString(), textScalar(
+                "SELECT customer_id FROM sales_return WHERE id = ?", creditReturn.id()));
+    }
+
+    @Test
     void customerlessSaleCannotBeRefundedToCredit() {
         SaleReceipt sale = sell("NO-CUSTOMER-CREDIT", 10, 2);
         var original = source(sale).lines().get(0);
-        SalesReturnDraft creditRefund = new SalesReturnDraft(sale.sale().id(), DATE,
+        SalesReturnDraft creditRefund = new SalesReturnDraft(sale.sale().id(), null, DATE,
                 SalesReturnReason.CUSTOMER_RETURN, PaymentMethod.CREDIT, null,
                 List.of(new SalesReturnLineDraft(original.originalSaleLineId(),
                         original.batchId(), 1, original.unitPricePaisa())), null);
@@ -360,6 +462,7 @@ class JdbcSalesReturnEntryRepositoryTest {
     private SalesReturnService serviceWith(InventoryMovementRepository movementRepository) {
         return new SalesReturnService(new JdbcSalesReturnEntryRepository(
                 transactions, sales, saleLines, batches, productRepository,
+                customerRepository,
                 returns, returnLines, movementRepository));
     }
 
@@ -402,9 +505,19 @@ class JdbcSalesReturnEntryRepositoryTest {
 
     private SalesReturn record(
             SalesReturnSource source, int quantity, PaymentMethod refundMethod) {
+        return record(source, quantity, refundMethod, null);
+    }
+
+    private SalesReturn record(
+            SalesReturnSource source,
+            int quantity,
+            PaymentMethod refundMethod,
+            UUID returnCustomerId
+    ) {
         var line = source.lines().get(0);
         return returnService.record(new SalesReturnDraft(
-                source.sale().id(), DATE, SalesReturnReason.CUSTOMER_RETURN,
+                source.sale().id(), returnCustomerId, DATE,
+                SalesReturnReason.CUSTOMER_RETURN,
                 refundMethod, "sealed package",
                 List.of(new SalesReturnLineDraft(line.originalSaleLineId(), line.batchId(),
                         quantity, line.unitPricePaisa())), null));
@@ -417,7 +530,7 @@ class JdbcSalesReturnEntryRepositoryTest {
     }
 
     private static SalesReturnDraft draft(UUID saleId, SalesReturnLineDraft line) {
-        return new SalesReturnDraft(saleId, DATE, SalesReturnReason.CUSTOMER_RETURN,
+        return new SalesReturnDraft(saleId, null, DATE, SalesReturnReason.CUSTOMER_RETURN,
                 PaymentMethod.CASH, "  sealed package  ", List.of(line), null);
     }
 
@@ -499,6 +612,50 @@ class JdbcSalesReturnEntryRepositoryTest {
             return rows;
         } catch (java.sql.SQLException exception) {
             throw new AssertionError(exception);
+        }
+    }
+
+    private List<String> salesReturnRows(UUID salesReturnId) {
+        List<String> rows = new ArrayList<>();
+        try (var connection = database.openConnection()) {
+            appendRows(connection, rows,
+                    "SELECT * FROM sales_return WHERE id = ?", salesReturnId);
+            appendRows(connection, rows,
+                    "SELECT * FROM sales_return_line WHERE sales_return_id = ? ORDER BY id",
+                    salesReturnId);
+            return rows;
+        } catch (java.sql.SQLException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private List<String> inventoryMovementRows() {
+        List<String> rows = new ArrayList<>();
+        try (var connection = database.openConnection()) {
+            appendRows(connection, rows,
+                    "SELECT * FROM inventory_movement ORDER BY id", null);
+            return rows;
+        } catch (java.sql.SQLException exception) {
+            throw new AssertionError(exception);
+        }
+    }
+
+    private static void appendRows(
+            java.sql.Connection connection,
+            List<String> rows,
+            String sql,
+            UUID id
+    ) throws java.sql.SQLException {
+        try (var statement = connection.prepareStatement(sql)) {
+            if (id != null) statement.setString(1, id.toString());
+            try (var results = statement.executeQuery()) {
+                var metadata = results.getMetaData();
+                while (results.next()) {
+                    for (int index = 1; index <= metadata.getColumnCount(); index++) {
+                        rows.add(metadata.getColumnName(index) + "=" + results.getString(index));
+                    }
+                }
+            }
         }
     }
 }

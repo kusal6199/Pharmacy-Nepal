@@ -27,7 +27,7 @@ class DatabaseBootstrapTest {
 
         int migrationsExecuted = bootstrap.migrate();
 
-        assertEquals(6, migrationsExecuted);
+        assertEquals(8, migrationsExecuted);
         assertTrue(Files.exists(databaseFile));
 
         try (var connection = DriverManager.getConnection(bootstrap.jdbcUrl());
@@ -97,7 +97,7 @@ class DatabaseBootstrapTest {
             batch.executeUpdate();
         }
 
-        assertEquals(5, bootstrap.migrate());
+        assertEquals(7, bootstrap.migrate());
 
         try (var connection = bootstrap.openConnection();
              var product = connection.prepareStatement("""

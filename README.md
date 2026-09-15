@@ -11,7 +11,7 @@ Local-first pharmacy management application scaffolded for supervised, increment
 - Flyway schema migrations
 - JUnit 5 tests
 
-The executable opens a dashboard, product master, purchase-entry screen, point of sale, inventory-alert dashboard, sales and purchase history screens, both return screens, and one combined Udharo/Credit Accounts screen. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided transactions, find persisted documents after navigation or restart, record batch-aware returns, review expiry/replenishment risks, and settle derived customer receivables or supplier payables.
+The executable opens a dashboard, product master, purchase-entry screen, point of sale, inventory-alert dashboard, sales and purchase history screens, both return screens, and one combined Udharo/Credit Accounts screen. A pharmacist can maintain products, receive supplier stock by batch and expiry, complete FEFO-guided transactions, find persisted documents after navigation or restart, record batch-aware returns, review expiry/replenishment risks, and settle derived customer receivables, customer store credit, supplier payables, or supplier credit.
 
 ## Prerequisites
 
@@ -164,16 +164,20 @@ Low-stock calculations use sellable non-expired stock, not total physical stock.
 
 Application phase V8 adds:
 
-1. Customer receivables derived from opening balances, credit sales, credit-refund returns, and payments received
-2. Supplier payables derived from opening balances, explicitly classified credit purchases/returns, and payments made
+1. Customer receivables derived from opening balances, credit sales, credit-refund returns, payments received, and customer-credit payouts
+2. Supplier payables derived from opening balances, explicitly classified credit purchases/returns, payments made, and supplier-credit refunds received
 3. No writable or cached balance column: every current and running balance comes from immutable ordered events
-4. Cash/QR-only manual settlements, single positive opening balances, and overpayment protection
+4. Cash/QR-only manual settlements, single positive opening balances, and protection against overpayment, over-payout, or over-refund
 5. Honest `LEGACY_UNSPECIFIED` classification for purchases and purchase returns created before V8
 6. One searchable, bounded JavaFX screen with customer and supplier tabs, balance filters, account detail, running history, and immutable entry forms
 7. Human-readable owed/settled/party-credit labels instead of unexplained signed amounts
 8. Required settlement method selectors on new purchases and purchase returns, plus purchase-history display of the saved classification
+9. Return-time active-customer selection and inline creation when a walk-in Cash/QR sale is refunded as store credit
+10. Credit-sale refund-method protection plus source-date validation for both sales and purchase returns
+11. Partial or full Cash/QR payout when the customer later redeems a negative customer-credit balance for money
+12. The symmetric Cash/QR receipt when a supplier refunds a negative supplier-credit balance
 
-V8 adds Flyway migration `V6__create_credit_udharo_ledger.sql`; application phase V8 therefore runs on database schema V6. This remains a party subledger, not general-ledger accounting.
+V8 adds `V6__create_credit_udharo_ledger.sql`; its return-customer follow-up adds `V7__add_sales_return_customer.sql`; and its negative-credit settlement follow-up adds `V8__add_credit_payout_settlements.sql`. Application phase V8 therefore now runs on database schema V8. This remains a party subledger, not general-ledger accounting.
 
 Stock adjustments/write-offs, automatic purchase orders, reports and analytics, due dates/aging/interest, credit limits, split payments, RBAC/audit, Nepal invoice/PAN/VAT formatting, printing, barcode workflows, scheduled notifications, cloud sync, multi-branch support, and CBMS integration remain outside V8.
 

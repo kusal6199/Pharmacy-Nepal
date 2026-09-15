@@ -9,6 +9,7 @@ public record SalesReturn(
         UUID id,
         long returnNumber,
         UUID originalSaleId,
+        UUID customerId,
         LocalDate returnDate,
         SalesReturnReason reason,
         PaymentMethod refundMethod,

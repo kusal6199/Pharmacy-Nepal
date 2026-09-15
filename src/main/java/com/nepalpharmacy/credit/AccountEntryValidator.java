@@ -10,30 +10,42 @@ public final class AccountEntryValidator {
     }
 
     public static void validateCustomer(
-            AccountEntryDraft draft, long outstandingPaisa, boolean hasOpeningBalance) {
+            AccountEntryDraft draft, long currentBalancePaisa, boolean hasOpeningBalance) {
         Map<String, String> errors = basicErrors(draft);
         if (draft != null) {
             if (draft.entryType() == AccountEntryType.OPENING_BALANCE) {
                 validateOpening(draft, hasOpeningBalance, errors);
             } else if (draft.entryType() == AccountEntryType.PAYMENT_RECEIVED) {
-                validatePayment(draft, outstandingPaisa, "Payment received", errors);
+                validatePayment(draft, currentBalancePaisa, "Payment received", errors);
+            } else if (draft.entryType() == AccountEntryType.CREDIT_PAYOUT) {
+                validateCreditSettlement(
+                        draft, currentBalancePaisa, "Payout",
+                        "There is no customer credit available to pay out.",
+                        "Payout cannot exceed the customer's available credit of NPR ", errors);
             } else {
-                errors.put("entryType", "Customer entry must be an opening balance or payment received.");
+                errors.put("entryType", "Customer entry must be an opening balance, "
+                        + "payment received, or customer credit payout.");
             }
         }
         throwIfAny(errors);
     }
 
     public static void validateSupplier(
-            AccountEntryDraft draft, long outstandingPaisa, boolean hasOpeningBalance) {
+            AccountEntryDraft draft, long currentBalancePaisa, boolean hasOpeningBalance) {
         Map<String, String> errors = basicErrors(draft);
         if (draft != null) {
             if (draft.entryType() == AccountEntryType.OPENING_BALANCE) {
                 validateOpening(draft, hasOpeningBalance, errors);
             } else if (draft.entryType() == AccountEntryType.PAYMENT_MADE) {
-                validatePayment(draft, outstandingPaisa, "Payment made", errors);
+                validatePayment(draft, currentBalancePaisa, "Payment made", errors);
+            } else if (draft.entryType() == AccountEntryType.CREDIT_REFUND_RECEIVED) {
+                validateCreditSettlement(
+                        draft, currentBalancePaisa, "Supplier credit refund",
+                        "There is no supplier credit available to receive.",
+                        "Refund cannot exceed the available supplier credit of NPR ", errors);
             } else {
-                errors.put("entryType", "Supplier entry must be an opening balance or payment made.");
+                errors.put("entryType", "Supplier entry must be an opening balance, "
+                        + "payment made, or supplier credit refund received.");
             }
         }
         throwIfAny(errors);
@@ -78,6 +90,26 @@ public final class AccountEntryValidator {
             errors.put("outstanding", "There is no positive outstanding balance to settle.");
         } else if (draft.amountPaisa() > outstanding) {
             errors.put("amount", "Payment cannot exceed the outstanding balance.");
+        }
+    }
+
+    private static void validateCreditSettlement(
+            AccountEntryDraft draft,
+            long currentBalance,
+            String methodLabel,
+            String noCreditMessage,
+            String excessMessagePrefix,
+            Map<String, String> errors
+    ) {
+        if (draft.paymentMethod() != PaymentMethod.CASH
+                && draft.paymentMethod() != PaymentMethod.QR) {
+            errors.put("paymentMethod", methodLabel + " requires Cash or QR / digital.");
+        }
+        if (currentBalance >= 0) {
+            errors.put("credit", noCreditMessage);
+        } else if (draft.amountPaisa() > 0 && currentBalance > -draft.amountPaisa()) {
+            errors.put("amount", excessMessagePrefix
+                    + AccountBalancePresentation.magnitude(currentBalance) + ".");
         }
     }
 

@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public record SalesReturnDraft(
         UUID originalSaleId,
+        UUID customerId,
         LocalDate returnDate,
         SalesReturnReason reason,
         PaymentMethod refundMethod,
@@ -17,6 +18,7 @@ public record SalesReturnDraft(
     public SalesReturnDraft normalized() {
         return new SalesReturnDraft(
                 originalSaleId,
+                customerId,
                 returnDate,
                 reason,
                 refundMethod,
