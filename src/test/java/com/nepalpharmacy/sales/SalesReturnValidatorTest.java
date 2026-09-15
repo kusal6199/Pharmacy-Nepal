@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -114,9 +115,75 @@ class SalesReturnValidatorTest {
                 exception.fieldErrors().get("refundMethod"));
     }
 
+    @Test
+    void creditSaleRejectsCashRefund() {
+        assertCreditSaleRejects(PaymentMethod.CASH);
+    }
+
+    @Test
+    void creditSaleRejectsQrRefund() {
+        assertCreditSaleRejects(PaymentMethod.QR);
+    }
+
+    @Test
+    void cashSaleAcceptsCashQrAndCreditRefunds() {
+        UUID saleId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        Sale cashSale = sale(saleId, PaymentMethod.CASH);
+        Map<UUID, SalesReturnLineAvailability> availability = Map.of(lineId,
+                availability(lineId, saleId, batchId, 3, 0));
+
+        for (PaymentMethod refundMethod : PaymentMethod.values()) {
+            SalesReturnDraft returnDraft = draft(
+                    saleId, line(lineId, batchId, 1, 150), refundMethod);
+            assertDoesNotThrow(() -> SalesReturnValidator.validate(
+                    returnDraft, cashSale, availability));
+        }
+    }
+
+    @Test
+    void allowedRefundMethodsFollowOriginalSalePaymentMethod() {
+        assertEquals(List.of(PaymentMethod.CREDIT), SalesReturnValidator.allowedRefundMethods(
+                sale(UUID.randomUUID(), PaymentMethod.CREDIT)));
+        assertEquals(List.of(PaymentMethod.CASH, PaymentMethod.QR, PaymentMethod.CREDIT),
+                SalesReturnValidator.allowedRefundMethods(
+                        sale(UUID.randomUUID(), PaymentMethod.CASH)));
+        assertEquals(List.of(PaymentMethod.CASH, PaymentMethod.QR, PaymentMethod.CREDIT),
+                SalesReturnValidator.allowedRefundMethods(
+                        sale(UUID.randomUUID(), PaymentMethod.QR)));
+    }
+
+    private static void assertCreditSaleRejects(PaymentMethod refundMethod) {
+        UUID saleId = UUID.randomUUID();
+        UUID lineId = UUID.randomUUID();
+        UUID batchId = UUID.randomUUID();
+        SalesReturnDraft returnDraft = draft(
+                saleId, line(lineId, batchId, 1, 150), refundMethod);
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> SalesReturnValidator.validate(returnDraft,
+                        sale(saleId, PaymentMethod.CREDIT), Map.of(lineId,
+                                availability(lineId, saleId, batchId, 1, 0))));
+
+        assertEquals(SalesReturnValidator.UNPAID_SALE_REFUND_MESSAGE,
+                exception.fieldErrors().get("refundMethod"));
+    }
+
+    private static Sale sale(UUID saleId, PaymentMethod paymentMethod) {
+        return new Sale(saleId, UUID.randomUUID(), DATE, 1, paymentMethod, 150,
+                Instant.parse("2026-09-13T00:00:00Z"), null);
+    }
+
     private static SalesReturnDraft draft(UUID saleId, SalesReturnLineDraft line) {
+        return draft(saleId, line, PaymentMethod.CASH);
+    }
+
+    private static SalesReturnDraft draft(
+            UUID saleId, SalesReturnLineDraft line, PaymentMethod refundMethod) {
         return new SalesReturnDraft(saleId, DATE, SalesReturnReason.CUSTOMER_RETURN,
-                PaymentMethod.CASH, null, List.of(line), null);
+                refundMethod, null, List.of(line), null);
     }
 
     private static SalesReturnLineDraft line(

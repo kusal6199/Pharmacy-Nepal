@@ -82,8 +82,7 @@ public final class SalesReturnScreen {
         configureSourceTable();
         configureDraftTable();
         reason.setItems(FXCollections.observableArrayList(SalesReturnReason.values()));
-        refundMethod.setItems(FXCollections.observableArrayList(PaymentMethod.values()));
-        refundMethod.setValue(PaymentMethod.CASH);
+        resetRefundMethods();
         reason.setValue(SalesReturnReason.CUSTOMER_RETURN);
         notes.setPromptText("Optional, up to 500 characters");
         notes.setPrefRowCount(2);
@@ -193,13 +192,18 @@ public final class SalesReturnScreen {
             updateTotal();
             if (source == null) {
                 sourceLines.clear();
+                resetRefundMethods();
                 sourceSummary.setText("No sale found for invoice " + value + ".");
                 feedback.setText("");
                 return;
             }
             sourceLines.setAll(source.lines());
+            refundMethod.setItems(FXCollections.observableArrayList(
+                    returns.allowedRefundMethods(source)));
+            refundMethod.setValue(refundMethod.getItems().get(0));
             sourceSummary.setText("Invoice " + source.sale().invoiceNumber()
                     + " • " + source.sale().saleDate()
+                    + " • original method " + source.sale().paymentMethod()
                     + " • original total NPR " + formatPaisa(source.sale().totalAmountPaisa()));
             feedback.setText("Original sale loaded. Select a line and enter a return quantity.");
         } catch (NumberFormatException exception) {
@@ -207,6 +211,11 @@ public final class SalesReturnScreen {
         } catch (RuntimeException exception) {
             feedback.setText(message(exception));
         }
+    }
+
+    private void resetRefundMethods() {
+        refundMethod.setItems(FXCollections.observableArrayList(PaymentMethod.values()));
+        refundMethod.setValue(PaymentMethod.CASH);
     }
 
     private void addLine() {

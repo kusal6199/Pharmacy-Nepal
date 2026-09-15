@@ -1,11 +1,15 @@
 package com.nepalpharmacy.sales.infrastructure;
 
 import com.nepalpharmacy.bootstrap.DatabaseBootstrap;
+import com.nepalpharmacy.credit.infrastructure.JdbcCustomerAccountRepository;
 import com.nepalpharmacy.inventory.BatchStock;
 import com.nepalpharmacy.inventory.InventoryMovement;
 import com.nepalpharmacy.inventory.InventoryMovementRepository;
 import com.nepalpharmacy.inventory.infrastructure.JdbcBatchRepository;
 import com.nepalpharmacy.inventory.infrastructure.JdbcInventoryMovementRepository;
+import com.nepalpharmacy.party.Customer;
+import com.nepalpharmacy.party.CustomerDraft;
+import com.nepalpharmacy.party.CustomerService;
 import com.nepalpharmacy.party.Supplier;
 import com.nepalpharmacy.party.SupplierDraft;
 import com.nepalpharmacy.party.SupplierService;
@@ -35,6 +39,7 @@ import com.nepalpharmacy.sales.SalesReturnReason;
 import com.nepalpharmacy.sales.SalesReturnService;
 import com.nepalpharmacy.sales.SalesReturnSource;
 import com.nepalpharmacy.sales.SalesReturnValidationException;
+import com.nepalpharmacy.sales.SalesReturnValidator;
 import com.nepalpharmacy.shared.infrastructure.DataAccessException;
 import com.nepalpharmacy.shared.infrastructure.JdbcTransactionRunner;
 import com.nepalpharmacy.shared.persistence.TransactionContext;
@@ -63,8 +68,11 @@ class JdbcSalesReturnEntryRepositoryTest {
     private DatabaseBootstrap database;
     private TransactionRunner transactions;
     private JdbcProductRepository productRepository;
+    private JdbcCustomerRepository customerRepository;
+    private JdbcCustomerAccountRepository customerAccounts;
     private ProductService productService;
     private Product product;
+    private Customer customer;
     private Supplier supplier;
     private PurchaseService purchaseService;
     private SaleService saleService;
@@ -82,6 +90,8 @@ class JdbcSalesReturnEntryRepositoryTest {
         database.migrate();
         transactions = new JdbcTransactionRunner(database::openConnection);
         productRepository = new JdbcProductRepository(database::openConnection);
+        customerRepository = new JdbcCustomerRepository(database::openConnection);
+        customerAccounts = new JdbcCustomerAccountRepository(database::openConnection);
         productService = new ProductService(productRepository);
         var suppliers = new JdbcSupplierRepository(database::openConnection);
         batches = new JdbcBatchRepository(database::openConnection);
@@ -92,6 +102,8 @@ class JdbcSalesReturnEntryRepositoryTest {
         returnLines = new JdbcSalesReturnLineRepository(database::openConnection);
 
         product = productService.create(productDraft(150));
+        customer = new CustomerService(customerRepository).create(new CustomerDraft(
+                "Asha Shrestha", "9800000000", null, true));
         supplier = new SupplierService(suppliers).create(new SupplierDraft(
                 "Kathmandu Medical Suppliers", null, null, null, true));
         purchaseService = new PurchaseService(new JdbcPurchaseEntryRepository(
@@ -99,7 +111,7 @@ class JdbcSalesReturnEntryRepositoryTest {
                 new JdbcPurchaseRepository(database::openConnection),
                 new JdbcPurchaseLineRepository(database::openConnection), movements));
         saleService = new SaleService(new JdbcSaleEntryRepository(
-                transactions, new JdbcCustomerRepository(database::openConnection),
+                transactions, customerRepository,
                 batches, productRepository, sales, saleLines, movements), batches);
         returnService = serviceWith(movements);
     }
@@ -222,6 +234,73 @@ class JdbcSalesReturnEntryRepositoryTest {
     }
 
     @Test
+    void creditSaleCashRefundIsRejectedWithoutChangingLedgerOrStock() {
+        SaleReceipt sale = sell("CREDIT-CASH", 10, 2,
+                PaymentMethod.CREDIT, customer.id());
+        SalesReturnSource source = source(sale);
+        long stockBefore = stock(source.lines().get(0).batchId());
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> record(source, 1, PaymentMethod.CASH));
+
+        assertEquals(SalesReturnValidator.UNPAID_SALE_REFUND_MESSAGE,
+                exception.fieldErrors().get("refundMethod"));
+        assertEquals(300, customerBalance());
+        assertEquals(stockBefore, stock(source.lines().get(0).batchId()));
+        assertEquals(0, returns.count());
+    }
+
+    @Test
+    void creditSaleQrRefundIsRejectedWithoutChangingLedgerOrStock() {
+        SaleReceipt sale = sell("CREDIT-QR", 10, 2,
+                PaymentMethod.CREDIT, customer.id());
+        SalesReturnSource source = source(sale);
+        long stockBefore = stock(source.lines().get(0).batchId());
+
+        SalesReturnValidationException exception = assertThrows(
+                SalesReturnValidationException.class,
+                () -> record(source, 1, PaymentMethod.QR));
+
+        assertEquals(SalesReturnValidator.UNPAID_SALE_REFUND_MESSAGE,
+                exception.fieldErrors().get("refundMethod"));
+        assertEquals(300, customerBalance());
+        assertEquals(stockBefore, stock(source.lines().get(0).batchId()));
+        assertEquals(0, returns.count());
+    }
+
+    @Test
+    void creditSaleCreditRefundSucceedsAndReducesUdharoBalance() {
+        SaleReceipt sale = sell("CREDIT-CREDIT", 10, 2,
+                PaymentMethod.CREDIT, customer.id());
+        SalesReturnSource source = source(sale);
+
+        SalesReturn completed = record(source, 1, PaymentMethod.CREDIT);
+
+        assertEquals(PaymentMethod.CREDIT, completed.refundMethod());
+        assertEquals(150, completed.totalAmountPaisa());
+        assertEquals(150, customerBalance());
+        assertEquals(9, stock(source.lines().get(0).batchId()));
+        assertEquals(1, returns.count());
+    }
+
+    @Test
+    void cashSalesWithCustomerAcceptCashQrAndCreditRefundMethods() {
+        int index = 0;
+        for (PaymentMethod refundMethod : PaymentMethod.values()) {
+            SaleReceipt sale = sell("CASH-REFUND-" + index++, 4, 1,
+                    PaymentMethod.CASH, customer.id());
+
+            SalesReturn completed = record(source(sale), 1, refundMethod);
+
+            assertEquals(refundMethod, completed.refundMethod());
+        }
+
+        assertEquals(3, returns.count());
+        assertEquals(-150, customerBalance());
+    }
+
+    @Test
     void customerlessSaleCannotBeRefundedToCredit() {
         SaleReceipt sale = sell("NO-CUSTOMER-CREDIT", 10, 2);
         var original = source(sale).lines().get(0);
@@ -285,6 +364,16 @@ class JdbcSalesReturnEntryRepositoryTest {
     }
 
     private SaleReceipt sell(String batchNumber, int received, int sold) {
+        return sell(batchNumber, received, sold, PaymentMethod.CASH, null);
+    }
+
+    private SaleReceipt sell(
+            String batchNumber,
+            int received,
+            int sold,
+            PaymentMethod paymentMethod,
+            UUID customerId
+    ) {
         purchaseService.record(new PurchaseDraft(
                 supplier.id(), DATE.minusDays(1), "PURCHASE-" + batchNumber,
                 com.nepalpharmacy.purchasing.PurchasePaymentMethod.CASH,
@@ -293,7 +382,7 @@ class JdbcSalesReturnEntryRepositoryTest {
         BatchStock stock = batches.findAvailableByProduct(product.id(), DATE).stream()
                 .filter(item -> item.batch().batchNumber().equals(batchNumber))
                 .findFirst().orElseThrow();
-        return saleService.record(new SaleDraft(null, DATE, PaymentMethod.CASH,
+        return saleService.record(new SaleDraft(customerId, DATE, paymentMethod,
                 List.of(new SaleLineDraft(stock.batch().id(), sold, product.salePricePaisa())), null));
     }
 
@@ -309,6 +398,16 @@ class JdbcSalesReturnEntryRepositoryTest {
 
     private SalesReturn record(SalesReturnSource source, int quantity) {
         return returnService.record(draftFor(source, quantity));
+    }
+
+    private SalesReturn record(
+            SalesReturnSource source, int quantity, PaymentMethod refundMethod) {
+        var line = source.lines().get(0);
+        return returnService.record(new SalesReturnDraft(
+                source.sale().id(), DATE, SalesReturnReason.CUSTOMER_RETURN,
+                refundMethod, "sealed package",
+                List.of(new SalesReturnLineDraft(line.originalSaleLineId(), line.batchId(),
+                        quantity, line.unitPricePaisa())), null));
     }
 
     private SalesReturnDraft draftFor(SalesReturnSource source, int quantity) {
@@ -335,6 +434,10 @@ class JdbcSalesReturnEntryRepositoryTest {
 
     private long stock(UUID batchId) {
         return scalar("SELECT quantity_base_units FROM batch_stock WHERE batch_id = ?", batchId);
+    }
+
+    private long customerBalance() {
+        return customerAccounts.findDetail(customer.id()).orElseThrow().summary().balancePaisa();
     }
 
     private long scalar(String sql, UUID id) {

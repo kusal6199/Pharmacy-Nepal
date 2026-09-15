@@ -2199,3 +2199,67 @@ Purpose: add derived customer receivables and supplier payables, immutable manua
 - JavaFX manual click-through remains unperformed because this execution environment has no screen. This is an environment limitation, not a successful GUI claim.
 - Out of scope: chart of accounts, journal entries, double-entry accounting, cash book, P&L, balance sheet, tax accounting, due dates, aging/overdue state, interest/late fees, credit limits, split payments, loyalty, reminders, automatic supplier ordering, reports/analytics, RBAC/authentication, audit log, CBMS, cloud sync, multi-branch, printing/legal invoice formatting, edits/deletes of financial events, and any inventory movement/view/stock-semantic change.
 - Recommended next phase: V9 — Core Operational & Financial Reports. V9 was not started in this task.
+
+---
+
+## V8 follow-up — Original-payment-aware sales-return refunds
+
+Date: 2026-09-15
+Application phase: V8, Flyway schema: V6
+Migration: none
+Purpose: close the Udharo ledger gap that allowed a return against an unpaid Credit sale to be classified as a Cash or QR refund, leaving the customer's derived balance overstated.
+
+### V8-F01 — Gap confirmed
+
+- The original V8 rule only made the ledger react to `sales_return.refund_method = CREDIT`; it did not relate the chosen refund method to the original sale's payment method.
+- A Credit sale increases the customer's derived Udharo balance because no money was collected. Returning some of those goods as Cash or QR previously restored stock but produced no matching ledger reduction, so the customer could owe the full original amount after surrendering part of the goods.
+- This was a requirements gap rather than a migration or arithmetic defect. Existing persisted fields already identify both the original sale payment method and return refund method.
+
+### V8-F02 — Files changed
+
+- Modified `src/main/java/com/nepalpharmacy/sales/SalesReturnValidator.java` with the original-payment compatibility rule, its shared cashier-facing error message, and the canonical allowed-refund-method list.
+- Modified `src/main/java/com/nepalpharmacy/sales/SalesReturnService.java` to expose the allowed choices for an already-loaded `SalesReturnSource`.
+- Modified `src/main/java/com/nepalpharmacy/sales/ui/SalesReturnScreen.java` to refresh the selector from that service policy whenever an invoice is loaded, reset normal choices after a missing invoice, and show the original payment method in the source summary.
+- Modified `src/test/java/com/nepalpharmacy/sales/SalesReturnValidatorTest.java` with four focused validation/policy tests.
+- Modified `src/test/java/com/nepalpharmacy/sales/infrastructure/JdbcSalesReturnEntryRepositoryTest.java` with four migrated-SQLite integration tests covering rejection atomicity, stock, saved return methods, and the derived customer balance.
+- Appended this V8 follow-up entry to `docs/IMPLEMENTATION_HISTORY.md`. No earlier phase entry was rewritten.
+
+### V8-F03 — Validation and ledger effect
+
+- When `originalSale.paymentMethod()` is `CREDIT`, the only valid return refund method is now `CREDIT`.
+- A Cash or QR attempt against that Credit sale is rejected with: `This sale was never paid — refund must reduce the customer's Udharo balance, not be given as cash.`
+- The check runs through `SalesReturnValidator.validate(draft, originalSale, availability)` after the coordinator reloads the original sale and before it allocates a return number or inserts a return header, return line, or inventory movement.
+- A valid Credit refund still reduces the derived customer balance by the exact integer-paisa return total. In the integration scenario, a two-unit Credit sale at NPR 1.50 per unit creates NPR 3.00 receivable; returning one unit through Credit reduces the balance to NPR 1.50 and restores exactly one base unit.
+- Customer-linked Cash sales continue to accept Cash, QR, or Credit refunds. Cash and QR do not affect Udharo; Credit creates customer account credit exactly as before. QR original sales use the same unrestricted three-choice policy.
+- The existing rule that a Credit refund requires a customer account remains active. This follow-up does not assign account credit to a walk-in transaction.
+
+### V8-F04 — UI and architecture effect
+
+- Loading a Credit invoice replaces the refund-method selector contents with the single `Credit / Udharo` option and selects it automatically, preventing the cashier from choosing Cash or QR.
+- Loading a Cash or QR invoice exposes Cash, QR/digital, and Credit/Udharo. If an invoice lookup has no result, the selector resets to the normal three choices rather than retaining restrictions from the previously loaded sale.
+- `SalesReturnScreen` asks `SalesReturnService` for the policy and still has no repository/JDBC dependency or persistence rule. `SalesReturnService` delegates to the validator, keeping one canonical business rule for validation and presentation choices.
+- The already-loaded `SalesReturnSource.sale()` supplies the UI decision. The existing transaction-scoped `sales.findById(...)` supplies the persistence decision. No new query, repository method, dependency, or construction wiring was added.
+
+### V8-F05 — Database effect
+
+- No Flyway migration was added or edited. Schema remains V6 and application phase remains V8.
+- No table, column, constraint, index, counter, movement type, stored balance, or historical row changed.
+- Existing V1 through V6 migration files remain untouched. Inventory, pricing, return-quantity, and derived-ledger formulas remain unchanged.
+
+### V8-F06 — Tests and verification
+
+- Added distinct unit tests proving a Credit original sale rejects Cash and QR refunds with the required message.
+- Added policy coverage proving Credit originals expose only Credit while Cash and QR originals expose all three methods, plus validation coverage that a customer-linked Cash sale accepts all three.
+- Added transactional integration tests proving rejected Credit-sale Cash/QR attempts create no return row, restore no stock, and leave the NPR 3.00 receivable unchanged.
+- Added a regression integration test proving Credit-to-Credit succeeds, restores exact batch stock, saves the Credit method, and reduces NPR 3.00 outstanding to NPR 1.50.
+- Added a Cash-original regression integration test proving Cash, QR, and Credit return methods all persist successfully; only the Credit-classified refund affects the customer's derived Udharo balance.
+- The pre-follow-up suite contained 116 tests. No existing test was removed or disabled; eight new tests bring the suite to 124.
+- `./mvnw test`: 124 tests run, 0 failures, 0 errors, 0 skipped; `BUILD SUCCESS`.
+- `./mvnw verify`: 124 tests run, 0 failures, 0 errors, 0 skipped; JAR rebuilt at `target/pharmacy-mvp-0.1.0-SNAPSHOT.jar`; `BUILD SUCCESS`.
+- `git diff --check`: completed with no whitespace errors.
+
+### V8-F07 — Decisions and scope
+
+- Kept this as a V8 behavioral follow-up because persisted data and schema already contained every required fact.
+- Kept the existing derived-ledger model: transaction headers remain the source of truth, and no duplicate posting or mutable balance was introduced.
+- Did not add purchasing, inventory, POS pricing, report, tax, authentication, or other feature work. The recommended next application phase remains V9; it was not started here.

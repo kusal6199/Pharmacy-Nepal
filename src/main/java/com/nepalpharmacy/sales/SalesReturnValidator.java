@@ -4,10 +4,15 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 public final class SalesReturnValidator {
+
+    public static final String UNPAID_SALE_REFUND_MESSAGE =
+            "This sale was never paid — refund must reduce the customer's Udharo balance, "
+                    + "not be given as cash.";
 
     private SalesReturnValidator() {
     }
@@ -40,6 +45,12 @@ public final class SalesReturnValidator {
             Map<UUID, SalesReturnLineAvailability> availabilityByOriginalLine
     ) {
         Map<String, String> errors = basicErrors(draft);
+        if (draft != null && draft.refundMethod() != null
+                && originalSale != null
+                && originalSale.paymentMethod() == PaymentMethod.CREDIT
+                && draft.refundMethod() != PaymentMethod.CREDIT) {
+            errors.put("refundMethod", UNPAID_SALE_REFUND_MESSAGE);
+        }
         if (draft != null && draft.refundMethod() == PaymentMethod.CREDIT
                 && originalSale != null && originalSale.customerId() == null) {
             errors.put("refundMethod", "Credit refund requires a customer account.");
@@ -86,6 +97,14 @@ public final class SalesReturnValidator {
         if (!errors.isEmpty()) {
             throw new SalesReturnValidationException(errors);
         }
+    }
+
+    public static List<PaymentMethod> allowedRefundMethods(Sale originalSale) {
+        Objects.requireNonNull(originalSale, "originalSale");
+        if (originalSale.paymentMethod() == PaymentMethod.CREDIT) {
+            return List.of(PaymentMethod.CREDIT);
+        }
+        return List.of(PaymentMethod.CASH, PaymentMethod.QR, PaymentMethod.CREDIT);
     }
 
     public static long totalPaisa(SalesReturnDraft draft) {

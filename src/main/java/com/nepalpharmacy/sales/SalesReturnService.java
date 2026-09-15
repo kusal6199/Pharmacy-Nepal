@@ -23,6 +23,11 @@ public final class SalesReturnService {
         return repository.findSourceByInvoiceNumber(invoiceNumber);
     }
 
+    public List<PaymentMethod> allowedRefundMethods(SalesReturnSource source) {
+        Objects.requireNonNull(source, "source");
+        return SalesReturnValidator.allowedRefundMethods(source.sale());
+    }
+
     public SalesReturnLineDraft prepareLine(SalesReturnSourceLine source, int quantity) {
         Objects.requireNonNull(source, "source");
         SalesReturnLineDraft line = new SalesReturnLineDraft(
